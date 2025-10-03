@@ -1,0 +1,4 @@
+﻿  glew.c
+     Creating library ..\..\lib\Debug\x64\glew32d.lib and object ..\..\lib\Debug\x64\glew32d.exp
+LINK : warning LNK4281: undesirable base address 0x62AA0000 for x64 image; set base address above 4GB for best ASLR optimization
+  glew_shared.vcxproj -> C:\glew-2.2.0\bin\Debug\x64\glew32d.dll
