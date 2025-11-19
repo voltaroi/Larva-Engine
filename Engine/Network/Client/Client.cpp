@@ -1,4 +1,5 @@
 #include "Client.h"
+#include <chrono>
 
 Client::Client() : running(false), clientSocket(INVALID_SOCKET) {}
 
@@ -23,6 +24,8 @@ bool Client::connectToServer(const std::string &host, int port) {
         return false;
     }
 
+    std::cout << "Connected to server " << host << ":" << port << " (socket=" << clientSocket << ")" << std::endl;
+
     running = true;
     std::thread(&Client::receiveLoop, this).detach();
     return true;
@@ -40,15 +43,44 @@ void Client::disconnect() {
 
 void Client::receiveLoop() {   // UNE SEULE définition
     char buffer[512];
+    std::string pending;
+    using clock = std::chrono::steady_clock;
+    auto lastPosLog = clock::time_point::min();
     while (running) {
         int bytes = recv(clientSocket, buffer, sizeof(buffer)-1, 0);
-        if (bytes <= 0) break;
+        if (bytes <= 0) {
+            std::cerr << "recv returned " << bytes << " (socket=" << clientSocket << ")" << std::endl;
+            break;
+        }
 
         buffer[bytes] = '\0';
-        std::string msg(buffer);
-        std::cout << "[Server] " << msg << std::endl;
+        pending.append(buffer, bytes);
 
-        // Ici tu peux parser le message pour créer des cubes côté client
+        // Traiter chaque ligne terminée par '\n'
+        size_t pos;
+        while ((pos = pending.find('\n')) != std::string::npos) {
+            std::string line = pending.substr(0, pos);
+            pending.erase(0, pos + 1);
+
+            if (line.empty()) continue;
+
+            // If it's a POS message, throttle console printing to at most once every 5 seconds
+            if (line.rfind("POS ", 0) == 0) {
+                auto now = clock::now();
+                if (now - lastPosLog > std::chrono::seconds(5)) {
+                    std::cout << "[Server] " << line << std::endl;
+                    lastPosLog = now;
+                }
+            } else {
+                std::cout << "[Server] " << line << std::endl;
+            }
+
+            if (onMessage) onMessage(line);
+        }
+    }
+
+    if (!pending.empty()) {
+        std::cout << "[Server leftover] " << pending << std::endl;
     }
     std::cout << "Disconnected from server." << std::endl;
 }

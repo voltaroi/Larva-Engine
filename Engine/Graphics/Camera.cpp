@@ -1,8 +1,10 @@
 #include "Camera.h"
+#include <iostream>
 
-float cameraX = 0.0f, cameraY = 0.0f, cameraZ = 5.0f;
+float cameraX = 0.0f, cameraY = -3.0f, cameraZ = 5.0f;
+float cameraTargetX = cameraX, cameraTargetY = cameraY, cameraTargetZ = cameraZ;
 float cameraAngleX = 0.0f, cameraAngleY = 0.0f;
-float moveSpeed = 0.05f;
+float moveSpeed = 0.20f;
 float rotationSpeed = 0.001f;
 float jumpSpeed = 0.15f;
 float gravity = 0.006f;
@@ -12,6 +14,9 @@ float verticalVelocity = 0.0f;
 int lastX, lastY;
 
 bool moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+bool cameraTargetActive = false;
+std::chrono::steady_clock::time_point cameraTargetTime = std::chrono::steady_clock::now();
+std::chrono::steady_clock::time_point cameraLastUpdateTime = std::chrono::steady_clock::now();
 
 void Camera::init(int w, int h)
 {
@@ -54,8 +59,6 @@ void Camera::update(const std::vector<AABB> &collisionBoxes)
         cameraY += verticalVelocity;
         verticalVelocity -= gravity;
     }
-
-    // --- Collision horizontale ---
 
     float torsoY = cameraY + playerHeight * 0.25f;
 
@@ -119,12 +122,33 @@ void Camera::update(const std::vector<AABB> &collisionBoxes)
     }
 }
 
+void Camera::networkUpdate()
+{
+    if (cameraTargetActive)
+    {
+        auto now = std::chrono::steady_clock::now();
+        std::chrono::duration<float> d = now - cameraLastUpdateTime;
+        float dt = std::max(0.0001f, d.count());
+        cameraLastUpdateTime = now;
+
+            const float smoothK = 14.0f;
+        float alpha = 1.0f - std::exp(-smoothK * dt);
+
+        cameraX += (cameraTargetX - cameraX) * alpha;
+        cameraY += (cameraTargetY - cameraY) * alpha;
+        cameraZ += (cameraTargetZ - cameraZ) * alpha;
+
+        auto age = std::chrono::steady_clock::now() - cameraTargetTime;
+        if (age > std::chrono::seconds(2)) cameraTargetActive = false;
+    }
+}
+
 void Camera::updateView()
 {
     glLoadIdentity();
-    gluLookAt(cameraX, cameraY, cameraZ,                                                             // position de la camera
-              cameraX + sin(cameraAngleY), cameraY + sin(cameraAngleX), cameraZ + cos(cameraAngleY), // Point de regard
-              0.0, 1.0, 0.0);                                                                        // direction du "haut"
+    gluLookAt(cameraX, cameraY, cameraZ,
+              cameraX + sin(cameraAngleY), cameraY + sin(cameraAngleX), cameraZ + cos(cameraAngleY),
+              0.0, 1.0, 0.0);
 }
 
 void Camera::keyboardUp(unsigned char key, int x, int y)
@@ -238,4 +262,27 @@ float Camera::getPosition()
 float Camera::getFront()
 {
     return sin(cameraAngleY), sin(cameraAngleX), cos(cameraAngleY);
+}
+
+void Camera::setPosition(float x, float y, float z)
+{
+    cameraTargetX = x;
+    cameraTargetY = y;
+    cameraTargetZ = z;
+    cameraTargetActive = true;
+    cameraTargetTime = std::chrono::steady_clock::now();
+    std::cout << "[CAM] target set to (" << x << "," << y << "," << z << ")\n";
+}
+
+void Camera::snapToPosition(float x, float y, float z)
+{
+    cameraX = x;
+    cameraY = y;
+    cameraZ = z;
+    cameraTargetX = x;
+    cameraTargetY = y;
+    cameraTargetZ = z;
+    cameraTargetActive = false;
+    cameraTargetTime = std::chrono::steady_clock::now();
+    std::cout << "[CAM] snap to (" << x << "," << y << "," << z << ")\n";
 }

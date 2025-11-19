@@ -12,9 +12,21 @@ public:
 
 private:
     SOCKET listenSocket = INVALID_SOCKET;
-    std::vector<SOCKET> clients;
+
+    struct PlayerInfo {
+        SOCKET sock;
+        int id;
+        int r, g, b;
+        float x, y;
+        float vx, vy;
+        int inputMask;
+        int lastProcessedSeq;
+    };
+
+    std::vector<PlayerInfo> players;
     std::mutex clientsMutex;
     bool running = false;
+    int nextId = 0;
 
     void clientHandler(SOCKET client);
 };

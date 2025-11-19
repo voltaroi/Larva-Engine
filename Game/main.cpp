@@ -1,11 +1,14 @@
 #include <GL/glew.h>
 #include <GL/glut.h>
+#include <chrono>
+#include <iostream>
 #include "Game.h"
 #include "Engine/Graphics/WindowUtils.h"
 
 void display();
 void reshape(int, int);
 void timer(int);
+void idle();
 void globalKeyboard(unsigned char, int, int);
 void globalKeyboardUp(unsigned char, int, int);
 void globalMouseMotion(int, int);
@@ -59,6 +62,7 @@ int main(int argc, char **argv)
     glutPassiveMotionFunc(globalMouseMotion);
     glutMotionFunc(globalMouseMotion);
     glutTimerFunc(0, timer, 0);
+    glutIdleFunc(idle);
 
     init();
 
@@ -67,6 +71,9 @@ int main(int argc, char **argv)
 
 void display()
 {
+    static int frames = 0;
+    static auto lastFPSTime = std::chrono::steady_clock::now();
+
     update();
     glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -96,6 +103,14 @@ void display()
     // === UI END ===
 
     glutSwapBuffers();
+    // FPS counter (log once per second)
+    frames++;
+    auto now = std::chrono::steady_clock::now();
+    if (now - lastFPSTime >= std::chrono::seconds(1)) {
+        std::cout << "[FPS] " << frames << " fps" << std::endl;
+        frames = 0;
+        lastFPSTime = now;
+    }
 }
 
 void update()
@@ -128,6 +143,11 @@ void timer(int)
 {
     glutPostRedisplay();
     glutTimerFunc(1000 / 60, timer, 0);
+}
+
+void idle()
+{
+    glutPostRedisplay();
 }
 
 void globalKeyboard(unsigned char key, int x, int y)
