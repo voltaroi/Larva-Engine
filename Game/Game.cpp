@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <mutex>
 #include <tuple>
+#include "Engine/Graphics/Model.h"
 
 static const float NETWORK_CAMERA_HEIGHT = -3.0f;
 
@@ -32,6 +33,8 @@ Spheres s{};
 Sound sound{}, sound2{};
 
 Camera player{};
+
+Model worldModel;
 
 UIButton ButtonQuit;
 UIButton ButtonSetFullscreenBorderless;
@@ -96,10 +99,27 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
     predictedX = player.getXPosition();
     predictedY = player.getZPosition();
+    if (worldModel.loadFromFile("Assets/Models/model.fbx")) {
+        worldModel.setScale(0.50f, 0.50f, 0.50f);
+        worldModel.setPosition(0.0f, -3.5f, 0.0f);
+    }
     texture = UI::loadTexture("Assets/Images/Basique_Idle_64x64.png", true);
 
     textBoxes.emplace_back(50, 50, 200, 30);
     textBoxes.emplace_back(50, 100, 200, 30);
+
+    // Global light
+    glEnable(GL_NORMALIZE);
+    glEnable(GL_LIGHTING);
+    glEnable(GL_LIGHT0);
+    glEnable(GL_COLOR_MATERIAL);
+    glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
+    GLfloat lightPos[] = { 0.0f, 10.0f, 10.0f, 1.0f };
+    GLfloat lightCol[] = { 0.95f, 0.95f, 0.95f, 1.0f };
+    GLfloat ambientCol[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, lightCol);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, ambientCol);
 
     ButtonQuit.init(screenWidth / 2 - 75, screenHeight / 2 + 80, 150, 40, "Quitter", 0.0f, 0.5f, 0.5f, false, []()
                 { std::cout << "Bouton cliqu� !" << std::endl;
@@ -143,6 +163,8 @@ void Game::display()
     t.draw();
     s.draw();
     floorQuad.draw();
+
+    worldModel.draw();
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
@@ -315,7 +337,7 @@ void Game::update()
             }
 
             player.setPosition(predictedX, NETWORK_CAMERA_HEIGHT, predictedY);
-            std::cout << "[NET] Sent INP seq=" << seq << " dx=" << dx << " dz=" << dz << " predicted=(" << predictedX << "," << predictedY << ")\n";
+            // std::cout << "[NET] Sent INP seq=" << seq << " dx=" << dx << " dz=" << dz << " predicted=(" << predictedX << "," << predictedY << ")\n";
 
             char buf[128];
             std::snprintf(buf, sizeof(buf), "INP %d %f %f\n", seq, dx, dz);
@@ -326,6 +348,11 @@ void Game::update()
 
 void Game::updateUI(int screenWidth, int screenHeight)
 {
+    glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_LIGHT0);
+    glDisable(GL_NORMALIZE);
+
     UI::drawText(20, 65, "HP:");
     UI::drawProgressBar(60, 60, 200, 20, 0.75f, 1, 0, 0);
 
@@ -371,6 +398,8 @@ void Game::updateUI(int screenWidth, int screenHeight)
 
     for (const auto &tb : textBoxes)
         tb.draw();
+
+    glPopAttrib();
 }
 
 void Game::globalKeyboard(unsigned char key, int x, int y)

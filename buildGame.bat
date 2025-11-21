@@ -24,16 +24,20 @@ set FILES=
 
 for %%F in (Game\*.cpp Engine\Graphics\*.cpp Engine\Core\*.cpp Engine\Network\Client\*.cpp) do (
     set SRC=%%F
-    set OBJ=%OBJ_DIR%\%%~nF.o
+    rem
+    call set "OBJNAME=%%F"
+    call set "OBJNAME=%%OBJNAME:\=_%%"
+    call set "OBJNAME=%%OBJNAME:.cpp=%%"
+    call set "OBJ=%OBJ_DIR%\%%OBJNAME%%.o"
 
-    if not exist !OBJ! (
+    if not exist "!OBJ!" (
         echo [NEW ] Compiling !SRC!
-        g++ -c !SRC! -o !OBJ! %COMPILE_FLAGS%
+        g++ -c "!SRC!" -o "!OBJ!" %COMPILE_FLAGS%
     ) else (
-        for %%S in (!SRC!) do for %%O in (!OBJ!) do (
+        for %%S in ("!SRC!") do for %%O in ("!OBJ!") do (
             if %%~tS GTR %%~tO (
                 echo [UPDATE] Compiling !SRC!
-                g++ -c !SRC! -o !OBJ! %COMPILE_FLAGS%
+                g++ -c "!SRC!" -o "!OBJ!" %COMPILE_FLAGS%
             )
         )
     )

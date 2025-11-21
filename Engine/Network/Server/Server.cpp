@@ -169,7 +169,7 @@ void Server::clientHandler(SOCKET client) {
         if (bytes <= 0) break;
         buffer[bytes] = '\0';
         std::string s(buffer);
-        std::cout << "Received from client: " << s << std::endl;
+        // std::cout << "Received from client: " << s << std::endl;
 
         if (s.rfind("INP ", 0) == 0) {
             int seq = 0;

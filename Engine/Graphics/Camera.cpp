@@ -271,7 +271,7 @@ void Camera::setPosition(float x, float y, float z)
     cameraTargetZ = z;
     cameraTargetActive = true;
     cameraTargetTime = std::chrono::steady_clock::now();
-    std::cout << "[CAM] target set to (" << x << "," << y << "," << z << ")\n";
+    // std::cout << "[CAM] target set to (" << x << "," << y << "," << z << ")\n";
 }
 
 void Camera::snapToPosition(float x, float y, float z)
@@ -284,5 +284,5 @@ void Camera::snapToPosition(float x, float y, float z)
     cameraTargetZ = z;
     cameraTargetActive = false;
     cameraTargetTime = std::chrono::steady_clock::now();
-    std::cout << "[CAM] snap to (" << x << "," << y << "," << z << ")\n";
+    // std::cout << "[CAM] snap to (" << x << "," << y << "," << z << ")\n";
 }

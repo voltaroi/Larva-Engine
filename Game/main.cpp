@@ -104,13 +104,13 @@ void display()
 
     glutSwapBuffers();
     // FPS counter (log once per second)
-    frames++;
-    auto now = std::chrono::steady_clock::now();
-    if (now - lastFPSTime >= std::chrono::seconds(1)) {
-        std::cout << "[FPS] " << frames << " fps" << std::endl;
-        frames = 0;
-        lastFPSTime = now;
-    }
+    // frames++;
+    // auto now = std::chrono::steady_clock::now();
+    // if (now - lastFPSTime >= std::chrono::seconds(1)) {
+    //     std::cout << "[FPS] " << frames << " fps" << std::endl;
+    //     frames = 0;
+    //     lastFPSTime = now;
+    // }
 }
 
 void update()

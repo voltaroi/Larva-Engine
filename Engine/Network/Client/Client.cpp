@@ -68,11 +68,11 @@ void Client::receiveLoop() {   // UNE SEULE définition
             if (line.rfind("POS ", 0) == 0) {
                 auto now = clock::now();
                 if (now - lastPosLog > std::chrono::seconds(5)) {
-                    std::cout << "[Server] " << line << std::endl;
+                    // std::cout << "[Server] " << line << std::endl;
                     lastPosLog = now;
                 }
             } else {
-                std::cout << "[Server] " << line << std::endl;
+                // std::cout << "[Server] " << line << std::endl;
             }
 
             if (onMessage) onMessage(line);
