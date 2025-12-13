@@ -8,15 +8,15 @@
 #include <string>
 #include <windows.h>
 
-#include "Engine/UIButton.h"
-#include "Engine/UI.h"
-#include "Engine/TextBox.h"
-#include "Engine/Camera.h"
-#include "Engine/Sound.h"
-#include "Engine/Quads.h"
-#include "Engine/Triangles.h"
-#include "Engine/Spheres.h"
-#include "Engine/AABB.h"
+#include "Engine/Graphics/UIButton.h"
+#include "Engine/Graphics/UI.h"
+#include "Engine/Graphics/TextBox.h"
+#include "Engine/Graphics/Camera.h"
+#include "Engine/Graphics/Sound.h"
+#include "Engine/Graphics/Quads.h"
+#include "Engine/Graphics/Triangles.h"
+#include "Engine/Graphics/Spheres.h"
+#include "Engine/Core/AABB.h"
 
 class Editor
 {

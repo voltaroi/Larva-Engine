@@ -4,14 +4,16 @@
 #include <iostream>
 #include <thread>
 #include <functional>
+#include "../EventEmitter.h"
 
-class Client {
+class Client : public EventEmitter {
 public:
     Client();
     ~Client();
 
     bool connectToServer(const std::string& host, int port);
     void sendMessage(const std::string& msg);
+    void sendEvent(const std::string &eventName, const JsonValue &data) override;
     void disconnect();
 
     void receiveLoop();

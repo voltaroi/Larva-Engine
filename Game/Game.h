@@ -15,6 +15,7 @@
 #include "Engine/Core/AABB.h"
 #include "Engine/Graphics/WindowUtils.h"
 #include "Engine/Network/Client/Client.h"
+#include "Engine/Graphics/Chat.h"
 
 class Game
 {

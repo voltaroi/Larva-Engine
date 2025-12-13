@@ -43,6 +43,8 @@ UIButton ButtonSetWindowed;
 
 Client client;
 
+Chat globalChat;
+
 float test = 1;
 
 struct PlayerCube {
@@ -107,6 +109,9 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
     textBoxes.emplace_back(50, 50, 200, 30);
     textBoxes.emplace_back(50, 100, 200, 30);
+
+    // Initialize chat system
+    globalChat.init(client);
 
     // Global light
     glEnable(GL_NORMALIZE);
@@ -193,6 +198,7 @@ void Game::update()
             int id, r, g, b;
             iss >> id >> r >> g >> b;
             myPlayerId = id;
+            globalChat.setPlayerId(id);
             std::cout << "Assigned id: " << id << " color=" << r << "," << g << "," << b << std::endl;
         }
         else if (cmd == "EXIST" || cmd == "JOIN") {
@@ -399,11 +405,21 @@ void Game::updateUI(int screenWidth, int screenHeight)
     for (const auto &tb : textBoxes)
         tb.draw();
 
+    // Draw chat
+    globalChat.draw(screenWidth, screenHeight);
+
     glPopAttrib();
 }
 
 void Game::globalKeyboard(unsigned char key, int x, int y)
 {
+    // Handle chat input if chat is open
+    if (globalChat.isVisible()) {
+        globalChat.handleKey(key);
+        glutPostRedisplay();
+        return;
+    }
+
     if (!escape)
     {
         player.keyboard(key, x, y);
@@ -413,6 +429,9 @@ void Game::globalKeyboard(unsigned char key, int x, int y)
     {
     case 't':
         escape = !escape;
+        break;
+    case 'c': case 'C':
+        globalChat.toggleVisible();
         break;
     }
     switch (key)

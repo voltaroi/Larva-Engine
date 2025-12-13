@@ -35,6 +35,12 @@ void Client::sendMessage(const std::string &msg) {
     send(clientSocket, msg.c_str(), msg.size(), 0);
 }
 
+void Client::sendEvent(const std::string &eventName, const JsonValue &data) {
+    std::string json = data.toString();
+    std::string line = "EVENT " + eventName + " " + json + "\n";
+    sendMessage(line);
+}
+
 void Client::disconnect() {
     running = false;
     closesocket(clientSocket);
@@ -63,6 +69,18 @@ void Client::receiveLoop() {   // UNE SEULE définition
             pending.erase(0, pos + 1);
 
             if (line.empty()) continue;
+
+            // Parse EVENT messages: EVENT <name> <json>
+            if (line.rfind("EVENT ", 0) == 0) {
+                size_t space = line.find(' ', 6);
+                if (space != std::string::npos) {
+                    std::string eventName = line.substr(6, space - 6);
+                    std::string json = line.substr(space + 1);
+                    JsonValue data = JsonValue::parse(json);
+                    handleEvent(eventName, data);
+                }
+                continue;
+            }
 
             // If it's a POS message, throttle console printing to at most once every 5 seconds
             if (line.rfind("POS ", 0) == 0) {

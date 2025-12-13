@@ -1,4 +1,5 @@
 #include "Server.h"
+#include "../ServerChat.h"
 #include <iostream>
 #include <thread>
 #include <algorithm>
@@ -42,6 +43,13 @@ bool Server::start(int port) {
 
     running = true;
     std::cout << "Server started on port " << port << std::endl;
+
+    // Initialize server chat
+    if (!serverChat) {
+        serverChat = new ServerChat();
+        serverChat->init(this);
+        serverChat->setEnabled(true);
+    }
 
     std::thread([this]() {
         while (running) {
@@ -103,6 +111,16 @@ void Server::broadcast(const std::string &msg) {
             }
         }
     }
+}
+
+void Server::broadcastEvent(const std::string &eventName, const JsonValue &data) {
+    std::string json = data.toString();
+    std::string line = "EVENT " + eventName + " " + json + "\n";
+    broadcast(line);
+}
+
+void Server::sendEvent(const std::string &eventName, const JsonValue &data) {
+    broadcastEvent(eventName, data);
 }
 
 void Server::clientHandler(SOCKET client) {
@@ -170,6 +188,22 @@ void Server::clientHandler(SOCKET client) {
         buffer[bytes] = '\0';
         std::string s(buffer);
         // std::cout << "Received from client: " << s << std::endl;
+
+        // Parse EVENT messages: EVENT <name> <json>
+        if (s.rfind("EVENT ", 0) == 0) {
+            size_t space = s.find(' ', 6);
+            if (space != std::string::npos) {
+                std::string eventName = s.substr(6, space - 6);
+                std::string json = s.substr(space + 1);
+                // Trim trailing whitespace/newline
+                while (!json.empty() && (json.back() == '\n' || json.back() == '\r' || std::isspace(json.back()))) {
+                    json.pop_back();
+                }
+                JsonValue data = JsonValue::parse(json);
+                handleEvent(eventName, data);
+            }
+            continue;
+        }
 
         if (s.rfind("INP ", 0) == 0) {
             int seq = 0;
