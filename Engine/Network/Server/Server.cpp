@@ -55,8 +55,10 @@ bool Server::start(int port) {
         while (running) {
             SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
             if (clientSocket != INVALID_SOCKET) {
-                std::cout << "New client connected. socket=" << clientSocket << std::endl;
+                // std::cout << "New client connected. socket=" << clientSocket << std::endl;
                 std::thread(&Server::clientHandler, this, clientSocket).detach();
+            } else {
+                std::cerr << "accept failed: " << WSAGetLastError() << std::endl;
             }
         }
     }).detach();
@@ -65,37 +67,51 @@ bool Server::start(int port) {
 }
 
 void Server::broadcast(const std::string &msg) {
-    std::lock_guard<std::mutex> lock(clientsMutex);
-    for (const auto &c : clients) {
+    std::vector<ClientInfo> targets;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+        targets = clients;
+    }
+
+    for (const auto &c : targets) {
         if (c.sock == INVALID_SOCKET) continue;
         int res = send(c.sock, msg.c_str(), static_cast<int>(msg.size()), 0);
         if (res == SOCKET_ERROR) {
             std::cerr << "Failed to send to socket " << c.sock << " (id=" << c.id << "): " << WSAGetLastError() << std::endl;
         } else {
             if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
-                std::cout << "Sent to socket " << c.sock << " (id=" << c.id << "): bytes=" << res << " msg='" << msg << "'" << std::endl;
+                // std::cout << "Sent to socket " << c.sock << " (id=" << c.id << "): bytes=" << res << " msg='" << msg << "'" << std::endl;
             }
         }
     }
 }
 
 bool Server::sendTo(int clientId, const std::string &msg) {
-    std::lock_guard<std::mutex> lock(clientsMutex);
-    for (const auto &c : clients) {
-        if (c.id == clientId && c.sock != INVALID_SOCKET) {
-            int res = send(c.sock, msg.c_str(), static_cast<int>(msg.size()), 0);
-            if (res == SOCKET_ERROR) {
-                std::cerr << "Failed to send to client id=" << clientId << " socket=" << c.sock << ": " << WSAGetLastError() << std::endl;
-                return false;
+    SOCKET targetSock = INVALID_SOCKET;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+        for (const auto &c : clients) {
+            if (c.id == clientId) {
+                targetSock = c.sock;
+                break;
             }
-            if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
-                std::cout << "Sent to client id=" << clientId << " socket=" << c.sock << ": bytes=" << res << " msg='" << msg << "'" << std::endl;
-            }
-            return true;
         }
     }
-    std::cerr << "sendTo: no client with id=" << clientId << std::endl;
-    return false;
+
+    if (targetSock == INVALID_SOCKET) {
+        std::cerr << "sendTo: no client with id=" << clientId << std::endl;
+        return false;
+    }
+
+    int res = send(targetSock, msg.c_str(), static_cast<int>(msg.size()), 0);
+    if (res == SOCKET_ERROR) {
+        std::cerr << "Failed to send to client id=" << clientId << " socket=" << targetSock << ": " << WSAGetLastError() << std::endl;
+        return false;
+    }
+    if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
+        // std::cout << "Sent to client id=" << clientId << " socket=" << targetSock << ": bytes=" << res << " msg='" << msg << "'" << std::endl;
+    }
+    return true;
 }
 
 void Server::broadcastEvent(const std::string &eventName, const JsonValue &data) {
@@ -109,10 +125,12 @@ void Server::sendEvent(const std::string &eventName, const JsonValue &data) {
 }
 
 void Server::clientHandler(SOCKET client) {
-    std::cout << "clientHandler started for socket " << client << std::endl;
+    // std::cout << "clientHandler started for socket " << client << std::endl;
+    // std::cout << "clientHandler waiting for clientsMutex for socket " << client << std::endl;
     int myId = 0;
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
+        // std::cout << "clientHandler acquired clientsMutex for socket " << client << std::endl;
         myId = ++nextId;
         clients.push_back({client, myId});
         std::cout << "Added client id=" << myId << " socket=" << client << std::endl;
@@ -158,21 +176,27 @@ void Server::clientHandler(SOCKET client) {
         }
     }
 
+    int leavingId = -1;
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
-        int leavingId = -1;
         clients.erase(std::remove_if(clients.begin(), clients.end(), [&](const ClientInfo &c) {
             if (c.sock == client) { leavingId = c.id; return true; }
             return false;
         }), clients.end());
+    }
 
-        if (leavingId != -1 && onDisconnect) {
-            onDisconnect(leavingId);
-        }
+    if (leavingId == -1) {
+        std::cout << "Disconnect cleanup: socket not found " << client << std::endl;
+    } else {
+        // std::cout << "Disconnect cleanup: removed client id=" << leavingId << " socket=" << client << std::endl;
+    }
+
+    if (leavingId != -1 && onDisconnect) {
+        onDisconnect(leavingId);  // callback runs without clientsMutex to avoid deadlocks
     }
 
     closesocket(client);
-    std::cout << "Client disconnected." << std::endl;
+    std::cout << "Client disconnected id=" << leavingId << std::endl;
 }
 
 void Server::stop() {
