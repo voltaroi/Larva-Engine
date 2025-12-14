@@ -61,56 +61,41 @@ bool Server::start(int port) {
         }
     }).detach();
 
-    std::thread([this]() {
-        using namespace std::chrono;
-        const milliseconds tickDuration(50);
-        while (running) {
-            auto tickStart = steady_clock::now();
-
-            std::vector<PlayerInfo> snapshot;
-            {
-                std::lock_guard<std::mutex> lock(clientsMutex);
-                        for (auto &p : players) {
-                            p.x += p.vx;
-                            p.y += p.vy;
-                        }
-
-                snapshot = players;
-            }
-
-            std::string stateMsg;
-            char buf[128];
-            for (const auto &p : snapshot) {
-                std::snprintf(buf, sizeof(buf), "STATE %d %f %f %d\n", p.id, p.x, p.y, p.lastProcessedSeq);
-                stateMsg += buf;
-            }
-
-            if (!stateMsg.empty()) {
-                broadcast(stateMsg);
-            }
-
-            auto elapsed = steady_clock::now() - tickStart;
-            if (elapsed < tickDuration) std::this_thread::sleep_for(tickDuration - elapsed);
-        }
-    }).detach();
-
     return true;
 }
 
 void Server::broadcast(const std::string &msg) {
     std::lock_guard<std::mutex> lock(clientsMutex);
-    for (const auto &p : players) {
-        if (p.sock != INVALID_SOCKET) {
-            int res = send(p.sock, msg.c_str(), static_cast<int>(msg.size()), 0);
-            if (res == SOCKET_ERROR) {
-                std::cerr << "Failed to send to socket " << p.sock << " (id=" << p.id << "): " << WSAGetLastError() << std::endl;
-            } else {
-                if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
-                    std::cout << "Sent to socket " << p.sock << " (id=" << p.id << "): bytes=" << res << " msg='" << msg << "'" << std::endl;
-                }
+    for (const auto &c : clients) {
+        if (c.sock == INVALID_SOCKET) continue;
+        int res = send(c.sock, msg.c_str(), static_cast<int>(msg.size()), 0);
+        if (res == SOCKET_ERROR) {
+            std::cerr << "Failed to send to socket " << c.sock << " (id=" << c.id << "): " << WSAGetLastError() << std::endl;
+        } else {
+            if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
+                std::cout << "Sent to socket " << c.sock << " (id=" << c.id << "): bytes=" << res << " msg='" << msg << "'" << std::endl;
             }
         }
     }
+}
+
+bool Server::sendTo(int clientId, const std::string &msg) {
+    std::lock_guard<std::mutex> lock(clientsMutex);
+    for (const auto &c : clients) {
+        if (c.id == clientId && c.sock != INVALID_SOCKET) {
+            int res = send(c.sock, msg.c_str(), static_cast<int>(msg.size()), 0);
+            if (res == SOCKET_ERROR) {
+                std::cerr << "Failed to send to client id=" << clientId << " socket=" << c.sock << ": " << WSAGetLastError() << std::endl;
+                return false;
+            }
+            if (msg.rfind("POS ", 0) != 0 && msg.rfind("STATE ", 0) != 0) {
+                std::cout << "Sent to client id=" << clientId << " socket=" << c.sock << ": bytes=" << res << " msg='" << msg << "'" << std::endl;
+            }
+            return true;
+        }
+    }
+    std::cerr << "sendTo: no client with id=" << clientId << std::endl;
+    return false;
 }
 
 void Server::broadcastEvent(const std::string &eventName, const JsonValue &data) {
@@ -126,60 +111,16 @@ void Server::sendEvent(const std::string &eventName, const JsonValue &data) {
 void Server::clientHandler(SOCKET client) {
     std::cout << "clientHandler started for socket " << client << std::endl;
     int myId = 0;
-    std::vector<PlayerInfo> existingPlayersSnapshot;
-    std::string joinMsg;
-    std::string assignMsg;
     {
-        std::cout << "clientHandler acquiring clientsMutex for socket " << client << std::endl;
         std::lock_guard<std::mutex> lock(clientsMutex);
-        std::cout << "clientHandler inside clientsMutex for socket " << client << std::endl;
-
         myId = ++nextId;
-        int r = (myId * 97) % 256;
-        int g = (myId * 57) % 256;
-        int b = (myId * 31) % 256;
-
-        existingPlayersSnapshot = players;
-
-        PlayerInfo pi;
-        pi.sock = client;
-        pi.id = myId;
-        pi.r = r; pi.g = g; pi.b = b;
-        pi.x = 0.0f; pi.y = 0.0f;
-        pi.vx = 0.0f; pi.vy = 0.0f;
-        pi.inputMask = 0;
-        pi.lastProcessedSeq = 0;
-        players.push_back(pi);
-        std::cout << "Added player id=" << myId << " socket=" << client << " (r,g,b)=(" << r << "," << g << "," << b << ")" << std::endl;
-
-        char bufAssign[128];
-        std::snprintf(bufAssign, sizeof(bufAssign), "ASSIGN %d %d %d %d\n", myId, r, g, b);
-        assignMsg = bufAssign;
-
-        char bufJoin[128];
-        std::snprintf(bufJoin, sizeof(bufJoin), "JOIN %d %d %d %d\n", myId, r, g, b);
-        joinMsg = bufJoin;
+        clients.push_back({client, myId});
+        std::cout << "Added client id=" << myId << " socket=" << client << std::endl;
     }
 
-    for (const auto &ep : existingPlayersSnapshot) {
-        char bufExist[256];
-        std::snprintf(bufExist, sizeof(bufExist), "EXIST %d %d %d %d %f %f\n", ep.id, ep.r, ep.g, ep.b, ep.x, ep.y);
-        int res = send(client, bufExist, static_cast<int>(strlen(bufExist)), 0);
-        if (res == SOCKET_ERROR) {
-            std::cerr << "Failed to send EXIST to new client socket " << client << ": " << WSAGetLastError() << std::endl;
-        } else {
-            std::cout << "Sent EXIST to new client socket " << client << ": bytes=" << res << " msg='" << bufExist << "'" << std::endl;
-        }
+    if (onConnect) {
+        onConnect(myId);
     }
-
-    int resAssign = send(client, assignMsg.c_str(), static_cast<int>(assignMsg.size()), 0);
-    if (resAssign == SOCKET_ERROR) {
-        std::cerr << "Failed to send ASSIGN to client " << client << ": " << WSAGetLastError() << std::endl;
-    } else {
-        std::cout << "Sent ASSIGN to client " << client << ": bytes=" << resAssign << " msg='" << assignMsg << "'" << std::endl;
-    }
-
-    broadcast(joinMsg);
 
     char buffer[512];
     while (true) {
@@ -211,14 +152,8 @@ void Server::clientHandler(SOCKET client) {
             std::string rest = s.substr(4);
             std::sscanf(rest.c_str(), "%d %f %f", &seq, &dx, &dz);
 
-            std::lock_guard<std::mutex> lock(clientsMutex);
-            for (auto &p : players) {
-                if (p.sock == client) {
-                    p.vx = dx;
-                    p.vy = dz;
-                    p.lastProcessedSeq = seq;
-                    break;
-                }
+            if (onInput) {
+                onInput(myId, seq, dx, dz);
             }
         }
     }
@@ -226,15 +161,13 @@ void Server::clientHandler(SOCKET client) {
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
         int leavingId = -1;
-        players.erase(std::remove_if(players.begin(), players.end(), [&](const PlayerInfo &p) {
-            if (p.sock == client) { leavingId = p.id; return true; }
+        clients.erase(std::remove_if(clients.begin(), clients.end(), [&](const ClientInfo &c) {
+            if (c.sock == client) { leavingId = c.id; return true; }
             return false;
-        }), players.end());
+        }), clients.end());
 
-        if (leavingId != -1) {
-            char bufLeave[64];
-            std::snprintf(bufLeave, sizeof(bufLeave), "LEAVE %d", leavingId);
-            broadcast(bufLeave);
+        if (leavingId != -1 && onDisconnect) {
+            onDisconnect(leavingId);
         }
     }
 
