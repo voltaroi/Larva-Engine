@@ -108,7 +108,6 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     }
     texture = UI::loadTexture("Images/Basique_Idle_64x64.png", true);
 
-    textBoxes.emplace_back(50, 50, 200, 30);
     textBoxes.emplace_back(50, 100, 200, 30);
 
     // Initialize chat system
@@ -127,22 +126,22 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     glLightfv(GL_LIGHT0, GL_DIFFUSE, lightCol);
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientCol);
 
-    ButtonQuit.init(screenWidth / 2 - 75, screenHeight / 2 + 80, 150, 40, "Quitter", 0.0f, 0.5f, 0.5f, false, []()
+    ButtonQuit.init(0, 80, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Quitter", 0.0f, 0.5f, 0.5f, false, []()
                 { std::cout << "Bouton cliqu� !" << std::endl;
                 exit(0); });
 
-    ButtonSetFullscreenBorderless.init(screenWidth / 2 - 100, screenHeight / 2 + 40 -10, 200, 40, "FullscreenBorderless", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetFullscreenBorderless.init(0, 30, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "FullscreenBorderless", 0.0f, 0.5f, 0.5f, false, [this]()
                 { 
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setFullscreenBorderless(800, 600);
                 });
 
-    ButtonSetFullscreen.init(screenWidth / 2 - 75, screenHeight / 2 + 0-20, 150, 40, "Fullscreen", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetFullscreen.init(0, -20, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Fullscreen", 0.0f, 0.5f, 0.5f, false, [this]()
                 { std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setFullscreen();
                 });
 
-    ButtonSetWindowed.init(screenWidth / 2 - 75, screenHeight / 2 + -40-30, 150, 40, "Windowed", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, true, [this]()
                 { 
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setWindowed(800, 600);
@@ -150,12 +149,7 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
     textBoxes[0].onTextChanged = [](const std::string &newText)
     {
-        std::cout << "TextBox 0 modifi�e : " << newText << std::endl;
-    };
-
-    textBoxes[1].onTextChanged = [](const std::string &newText)
-    {
-        std::cout << "TextBox 1 modifi�e : " << newText << std::endl;
+        std::cout << "TextBox 0 modifiee : " << newText << std::endl;
     };
 }
 
