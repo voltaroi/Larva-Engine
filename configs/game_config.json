@@ -1,0 +1,69 @@
+{
+    "name": "Larva Engine - Game",
+    "outputDir": "Release/Game",
+    "objectDir": "objGame",
+    "outputName": "game",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": false,
+    "staticLink": true,
+    
+    "sourceFiles": [
+        "Game/Game.cpp",
+        "Game/main.cpp",
+        "Engine/Graphics/Camera.cpp",
+        "Engine/Graphics/Chat.cpp",
+        "Engine/Graphics/Model.cpp",
+        "Engine/Graphics/Quads.cpp",
+        "Engine/Graphics/ResourcePak.cpp",
+        "Engine/Graphics/Sound.cpp",
+        "Engine/Graphics/Spheres.cpp",
+        "Engine/Graphics/TextBox.cpp",
+        "Engine/Graphics/Triangles.cpp",
+        "Engine/Graphics/UI.cpp",
+        "Engine/Graphics/UIButton.cpp",
+        "Engine/Graphics/WindowUtils.cpp",
+        "Engine/Network/Client/Client.cpp"
+    ],
+    
+    "includeDirs": [
+        ".",
+        "Dependencies/glew-2.2.0/include",
+        "Dependencies/assimp/include",
+        "Dependencies/libsndfile/include",
+        "Dependencies/openal-soft-1.24.2-bin/include",
+        "Dependencies/freeglut/include",
+        "Dependencies/glm-master",
+        "Dependencies/freetype/include"
+    ],
+    
+    "libraryDirs": [
+        "Dependencies/glew-2.2.0/lib",
+        "Dependencies/assimp/lib",
+        "Dependencies/libsndfile/lib",
+        "Dependencies/openal-soft-1.24.2-bin/libs/Win64",
+        "Dependencies/freeglut/lib",
+        "Dependencies/freetype/lib",
+        "Dependencies/zlib/lib"
+    ],
+    
+    "libraries": [
+        "mingw32",
+        "freeglut_static",
+        "glew32",
+        "opengl32",
+        "glu32",
+        "assimp",
+        "sndfile",
+        "OpenAL32",
+        "freetype",
+        "ws2_32",
+        "winmm",
+        "zlibstatic"
+    ],
+    
+    "defines": [
+        "FREEGLUT_STATIC",
+        "GLEW_STATIC"
+    ]
+}

@@ -1,0 +1,26 @@
+{
+    "name": "Larva Builder (self-compile)",
+    "outputDir": "Release/Builder",
+    "objectDir": "objBuilder",
+    "outputName": "larva-builder",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": true,
+    "staticLink": true,
+    
+    "sourceFiles": [
+        "Builder/main.cpp",
+        "Builder/Builder.cpp",
+        "Builder/ProjectConfig.cpp"
+    ],
+    
+    "includeDirs": [
+        "."
+    ],
+    
+    "libraryDirs": [],
+    
+    "libraries": [],
+    
+    "defines": []
+}

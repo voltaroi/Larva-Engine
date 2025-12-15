@@ -1,0 +1,28 @@
+{
+    "name": "Larva Engine - Server",
+    "outputDir": "Release/Server",
+    "objectDir": "objServer",
+    "outputName": "server",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": true,
+    "staticLink": false,
+    
+    "sourceFiles": [
+        "Server/main.cpp",
+        "Engine/Network/ServerChat.cpp",
+        "Engine/Network/Server/Server.cpp"
+    ],
+    
+    "includeDirs": [
+        "."
+    ],
+    
+    "libraryDirs": [],
+    
+    "libraries": [
+        "ws2_32"
+    ],
+    
+    "defines": []
+}
