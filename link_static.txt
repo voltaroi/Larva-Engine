@@ -1,0 +1,3 @@
+/* Link script pour édition de liens statique complete */
+/* Forcé à être statique pour toutes les dépendances */
+INPUT(-lfreetype -lgdi32 -lole32 -luuid -loleaut32 -limm32 -lversion);

@@ -53,7 +53,7 @@ void Editor::init(int screenWidth, int screenHeight)
 
     textBoxes.emplace_back(50, 50, 200, 30);
     textBoxes.emplace_back(50, 100, 200, 30);
-    myButton.init(10, screenHeight - 100, 150, 35, "Build", 0.0f, 0.5f, 0.5f, false, []()
+    myButton.init(10, screenHeight - 100, UIButton::AnchorH::Left, UIButton::AnchorV::Top, 150, 35, "Build", 0.0f, 0.5f, 0.5f, false, []()
                   { 
                     // std::cout << "Build start" << std::endl;
                     // system("cd /d ..\\.. && BuildGame.bat");
