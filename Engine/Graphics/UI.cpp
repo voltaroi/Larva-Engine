@@ -1,4 +1,5 @@
 #include "UI.h"
+#include "ResourcePak.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -27,8 +28,20 @@ void UI::loadfont(const char *fontPath)
         throw std::runtime_error("Unable to initialize FreeType");
 
     FT_Face face;
-    if (FT_New_Face(ft, fontPath, 0, &face))
-        throw std::runtime_error("Unable to load font");
+    
+    // Try to load from PAK first
+    std::vector<unsigned char> fontData;
+    if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(fontPath, fontData)) {
+        // Load from memory using FreeType
+        if (FT_New_Memory_Face(ft, fontData.data(), fontData.size(), 0, &face)) {
+            throw std::runtime_error("Unable to load font from PAK");
+        }
+    } else {
+        // Fallback to disk loading
+        if (FT_New_Face(ft, fontPath, 0, &face)) {
+            throw std::runtime_error("Unable to load font");
+        }
+    }
 
     FT_Set_Pixel_Sizes(face, 0, 48);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -253,8 +266,18 @@ void UI::drawImage(float x, float y, float width, float height, GLuint textureId
 
 GLuint UI::loadTexture(const char *path, bool nearest)
 {
+    unsigned char *data = nullptr;
     int width, height, channels;
-    unsigned char *data = stbi_load(path, &width, &height, &channels, STBI_rgb_alpha);
+    
+    // Try to load from PAK first
+    std::vector<unsigned char> imageData;
+    if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(path, imageData)) {
+        data = stbi_load_from_memory(imageData.data(), imageData.size(), &width, &height, &channels, STBI_rgb_alpha);
+    } else {
+        // Fallback to disk loading
+        data = stbi_load(path, &width, &height, &channels, STBI_rgb_alpha);
+    }
+    
     if (!data)
     {
         fprintf(stderr, "Erreur de chargement de l'image : %s\n", path);

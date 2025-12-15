@@ -6,6 +6,9 @@
 #include "stb_image.h"
 #include <iostream>
 #include <cstring>
+#include <cstdio>
+#include <fstream>
+#include "ResourcePak.h"
 
 static GLuint g_modelProgram = 0;
 
@@ -139,8 +142,27 @@ static void processAiMesh(aiMesh *mesh, const aiScene *scene, Model::Mesh &out)
 
 bool Model::loadFromFile(const std::string &path)
 {
+    std::string actualPath = path;
+    std::vector<unsigned char> modelData;
+    std::string tempFile;
+    
+    // Try to load from PAK first
+    if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(path, modelData)) {
+        // Get file extension from original path
+        size_t dotPos = path.find_last_of('.');
+        std::string extension = (dotPos != std::string::npos) ? path.substr(dotPos) : ".tmp";
+        
+        // Create temp file with proper extension so Assimp can detect format
+        tempFile = "temp_model" + extension;
+        std::ofstream tmpFileStream(tempFile, std::ios::binary);
+        tmpFileStream.write(reinterpret_cast<char*>(modelData.data()), modelData.size());
+        tmpFileStream.close();
+        
+        actualPath = tempFile;
+    }
+    
     Assimp::Importer importer;
-    const aiScene *scene = importer.ReadFile(path,
+    const aiScene *scene = importer.ReadFile(actualPath,
         aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_JoinIdenticalVertices);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
@@ -224,7 +246,18 @@ bool Model::loadFromFile(const std::string &path)
             } else {
                 int w,h,channels;
                 unsigned char *data = nullptr;
-                if (!full.empty()) data = stbi_load(full.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+                
+                // Try to load from PAK first (with full path)
+                if (ResourcePak::IsInitialized()) {
+                    std::vector<unsigned char> texData;
+                    if (ResourcePak::LoadFile(full, texData)) {
+                        data = stbi_load_from_memory(texData.data(), texData.size(), &w, &h, &channels, STBI_rgb_alpha);
+                        std::cerr << "Model: loaded texture from PAK: '" << full << "'\n";
+                    }
+                }
+                
+                // Try disk loading if PAK didn't work
+                if (!data && !full.empty()) data = stbi_load(full.c_str(), &w, &h, &channels, STBI_rgb_alpha);
                 if (!data && !texName.empty()) {
                     std::cerr << "Model: trying fallback texture name='" << texName << "'\n";
                     data = stbi_load(texName.c_str(), &w, &h, &channels, STBI_rgb_alpha);
@@ -343,6 +376,11 @@ bool Model::loadFromFile(const std::string &path)
             m.diffuseB = matInfos[matIdx].b;
         }
         meshes.push_back(std::move(m));
+    }
+
+    // Clean up temp file if we created one
+    if (!tempFile.empty()) {
+        std::remove(tempFile.c_str());
     }
 
     std::cout << "Loaded model '" << path << "' with " << meshes.size() << " mesh(es)" << std::endl;

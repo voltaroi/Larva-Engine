@@ -13,6 +13,7 @@ std::vector<TextBox> textBoxes;
 int Game::mouseX = 0;
 int Game::mouseY = 0;
 bool Game::mousePressed = false;
+bool Game::fontLoaded = false;
 GLuint texture;
 bool escape = false;
 bool mouseIsBlocking = false;
@@ -94,18 +95,18 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
     // sound.setMaxDistance(100);
 
-    // sound.play("Assets/Sounds/didgerido-79546.mp3", 0, 0, 15);
-    // sound2.play("Assets/Sounds/drums-274805.mp3", 2, 0, 15);
+    // sound.play("Sounds/didgerido-79546.mp3", 0, 0, 15);
+    // sound2.play("Sounds/drums-274805.mp3", 2, 0, 15);
 
     player.init(screenWidth, screenHeight);
 
     predictedX = player.getXPosition();
     predictedY = player.getZPosition();
-    if (worldModel.loadFromFile("Assets/Models/model.fbx")) {
+    if (worldModel.loadFromFile("Models/model.fbx")) {
         worldModel.setScale(0.50f, 0.50f, 0.50f);
         worldModel.setPosition(0.0f, -3.5f, 0.0f);
     }
-    texture = UI::loadTexture("Assets/Images/Basique_Idle_64x64.png", true);
+    texture = UI::loadTexture("Images/Basique_Idle_64x64.png", true);
 
     textBoxes.emplace_back(50, 50, 200, 30);
     textBoxes.emplace_back(50, 100, 200, 30);
@@ -365,7 +366,13 @@ void Game::updateUI(int screenWidth, int screenHeight)
     if (escape)
     {
         UI::drawBox(screenWidth / 2 - 150, screenHeight / 2 - 225, 300, 450, 0.2f, 0.2f, 0.2f, 0.8f, false, 15.0f);
-        UI::loadfont("Assets/Fonts/KiwiSoda.ttf");
+        
+        // Load font only once
+        if (!fontLoaded) {
+            UI::loadfont("Fonts/KiwiSoda.ttf");
+            fontLoaded = true;
+        }
+        
         UI::renderText("PAUSE", screenWidth / 2 - 70, screenHeight / 2 + 180, 1.0f);
 
         ButtonQuit.update(mouseX, mouseY, mousePressed);

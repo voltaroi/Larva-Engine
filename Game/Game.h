@@ -23,6 +23,7 @@ private:
 	static int mouseX;
 	static int mouseY;
 	static bool mousePressed;
+	static bool fontLoaded;
 	static void blockMouse(int screenWidth, int screenHeight);
 
 	WindowUtils* windowUtils = nullptr;

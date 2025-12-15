@@ -1,6 +1,6 @@
-# Engine
+# Larva Engine
 
-**Engine** is a C++ game engine based on OpenGL. Its goal is to facilitate the creation of massively online 3D games on Windows.
+**Larva Engine** is a C++ game engine based on OpenGL. Its goal is to facilitate the creation of massively online 3D games on Windows.
 
 ## 🚀 Goals
 - Provide a lightweight and modular foundation
@@ -14,4 +14,5 @@
 | Rendering   | C++ / OpenGL | ⚠️ In progress |
 | Audio       | OpenAL       | ⚠️ In progress |
 | Physics     | C++          | ⚠️ In progress |
-| Multiplayer | C++          | 🛠️ Planned     |
+| Multiplayer | C++          | ⚠️ In progress |
+| Editor      | C++          | 🛠️ Planned     |

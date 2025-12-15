@@ -67,5 +67,44 @@ if %errorlevel% neq 0 (
   color 02
   echo Compilation reussie dans le dossier Release.
   color 07
+  
+  :: Compresser les assets en un fichier PAK
+  echo.
+  echo Gestion des assets...
+  
+  :: Fonction pour récréer le PAK
+  set ASSETS_PAK=%OUT_DIR%\editor.pak
+  set NEED_REBUILD=1
+  
+  :: Vérifier si le PAK existe et si les assets sont plus récents
+  if exist "!ASSETS_PAK!" (
+    set NEED_REBUILD=0
+    for /R "%CD%\Assets" %%F in (*.*) do (
+      for %%Z in ("!ASSETS_PAK!") do (
+        if %%~tF GTR %%~tZ (
+          echo [UPDATE] Assets plus recents que le PAK existant
+          set NEED_REBUILD=1
+        )
+      )
+    )
+  )
+  
+  :: Recréer le PAK si nécessaire
+  if !NEED_REBUILD! equ 1 (
+    if exist "!ASSETS_PAK!" (
+      echo Suppression du PAK existant...
+      del "!ASSETS_PAK!"
+    )
+    echo Compression des assets dans editor.pak...
+    PowerShell -NoProfile -ExecutionPolicy Bypass -File "%CD%\createPak.ps1" -assetsDir "%CD%\Assets" -outputPak "!ASSETS_PAK!"
+    
+    if exist "!ASSETS_PAK!" (
+      echo Assets comprimes avec succes dans editor.pak
+    ) else (
+      echo Attention: impossible de creer le fichier editor.pak
+    )
+  ) else (
+    echo PAK a jour, pas de modification necessaire
+  )
 )
 pause

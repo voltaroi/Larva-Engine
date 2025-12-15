@@ -4,6 +4,7 @@
 #include <iostream>
 #include "Game.h"
 #include "Engine/Graphics/WindowUtils.h"
+#include "Engine/Graphics/ResourcePak.h"
 
 void display();
 void reshape(int, int);
@@ -54,6 +55,12 @@ int main(int argc, char **argv)
     windowUtils.setFullscreenBorderless(screenWidth, screenHeight);
 
     glewInit();
+
+    // Initialize resource PAK
+    if (!ResourcePak::Initialize("game.pak")) {
+        std::cerr << "Warning: game.pak not found. The game may not work correctly." << std::endl;
+    }
+    ResourcePak::ListFiles(); // Debug: show available resources
 
     glutDisplayFunc(display);
     glutReshapeFunc(reshape);
