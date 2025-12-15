@@ -2,23 +2,35 @@
 #include "ProjectConfig.h"
 #include <iostream>
 #include <string>
+#include <windows.h>
+#include <clocale>
 
 void printUsage(const char* programName) {
     std::cout << "Usage: " << programName << " [options] <config.json>\n\n";
     std::cout << "Options:\n";
     std::cout << "  -v, --verbose    Mode verbeux\n";
-    std::cout << "  -r, --rebuild    Reconstruction complète\n";
-    std::cout << "  -c, --clean      Nettoyer les fichiers générés\n";
+    std::cout << "  -r, --rebuild    Reconstruction complete\n";
+    std::cout << "  -c, --clean      Nettoyer les fichiers generes\n";
+        std::cout << "  -d, --debug      Build en mode debug\n";
+        std::cout << "  --release        Build en mode release\n";
+        std::cout << "  -j, --jobs N     Nombre de threads de compilation (defaut: auto)\n";
+        std::cout << "  --no-progress    Desactiver la barre de progression\n";
     std::cout << "  --msvc           Forcer l'utilisation de MSVC\n";
     std::cout << "  --gcc            Forcer l'utilisation de GCC\n";
     std::cout << "  --clang          Forcer l'utilisation de Clang\n";
     std::cout << "\nExemples:\n";
     std::cout << "  " << programName << " engine_config.json\n";
-    std::cout << "  " << programName << " -r game_config.json\n";
-    std::cout << "  " << programName << " --clean server_config.json\n";
+        std::cout << "  " << programName << " -r -j 8 game_config.json\n";
+        std::cout << "  " << programName << " --debug --verbose game_config.json\n";
+        std::cout << "  " << programName << " --clean server_config.json\n";
 }
 
 int main(int argc, char* argv[]) {
+    // Activer l'UTF-8 pour les caracteres accentues dans la console Windows
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    std::setlocale(LC_ALL, "");
+
     if (argc < 2) {
         printUsage(argv[0]);
         return 1;
@@ -27,6 +39,10 @@ int main(int argc, char* argv[]) {
     bool verbose = false;
     bool rebuild = false;
     bool clean = false;
+        bool debugOverride = false;
+        bool releaseOverride = false;
+        int jobs = 0;
+        bool showProgress = true;
     CompilerType forcedCompiler = CompilerType::UNKNOWN;
     std::string configFile;
     
@@ -40,6 +56,17 @@ int main(int argc, char* argv[]) {
             rebuild = true;
         } else if (arg == "-c" || arg == "--clean") {
             clean = true;
+            } else if (arg == "-d" || arg == "--debug") {
+                debugOverride = true;
+            } else if (arg == "--release") {
+                releaseOverride = true;
+            } else if (arg == "-j" || arg == "--jobs") {
+                if (i + 1 < argc) {
+                    jobs = std::atoi(argv[i + 1]);
+                    i++;
+                }
+            } else if (arg == "--no-progress") {
+                showProgress = false;
         } else if (arg == "--msvc") {
             forcedCompiler = CompilerType::MSVC;
         } else if (arg == "--gcc") {
@@ -56,7 +83,7 @@ int main(int argc, char* argv[]) {
     }
     
     if (configFile.empty()) {
-        std::cerr << "Erreur: aucun fichier de configuration spécifié" << std::endl;
+        std::cerr << "Erreur: aucun fichier de configuration specifie" << std::endl;
         printUsage(argv[0]);
         return 1;
     }
@@ -68,9 +95,21 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+        // Appliquer les overrides CLI
+        if (debugOverride) {
+            config.buildType = BuildType::DEBUG;
+        } else if (releaseOverride) {
+            config.buildType = BuildType::RELEASE;
+        }
+    
     // Créer le builder
     Builder builder;
     builder.setVerbose(verbose);
+        builder.setShowProgress(showProgress);
+    
+        if (jobs > 0) {
+            builder.setJobs(jobs);
+        }
     
     if (forcedCompiler != CompilerType::UNKNOWN) {
         builder.setCompiler(forcedCompiler);

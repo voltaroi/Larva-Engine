@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+setlocal
+title Build Server - Larva Engine
 echo === Build du Server ===
 echo.
 

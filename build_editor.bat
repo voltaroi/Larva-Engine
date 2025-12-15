@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+setlocal
+title Build Editor - Larva Engine
 echo === Build de l'Editor ===
 echo.
 

@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+setlocal
+title Build All - Larva Engine
 echo ========================================
 echo === Build de TOUT le Larva Engine ===
 echo ========================================

@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <thread>
+#include <mutex>
+#include <chrono>
 
 class Builder {
 public:
@@ -23,10 +26,16 @@ public:
     
     void setVerbose(bool verbose) { m_verbose = verbose; }
     void setCompiler(CompilerType type) { m_compilerType = type; }
+     void setJobs(int jobs) { m_jobs = jobs; }
+     void setShowProgress(bool show) { m_showProgress = show; }
     
 private:
     CompilerType m_compilerType;
     bool m_verbose;
+     int m_jobs;
+     bool m_showProgress;
+     std::mutex m_outputMutex;
+     std::mutex m_progressMutex;
     
     // Chemins des compilateurs détectés
     std::string m_compilerPath;
@@ -34,6 +43,7 @@ private:
     
     // Cache de timestamps pour compilation incrémentale
     std::map<std::string, long long> m_fileTimestamps;
+     std::map<std::string, std::vector<std::string>> m_dependencies;
     
     // Détection des compilateurs
     bool findMSVC(std::string& outPath);
@@ -64,6 +74,20 @@ private:
     long long getFileTimestamp(const std::string& filePath);
     bool executeCommand(const std::string& command);
     void createDirectory(const std::string& path);
+    
+     // Nouvelles fonctionnalités
+     void scanDependencies(const std::string& sourceFile, std::vector<std::string>& deps);
+     bool anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile);
+     void showProgressBar(int current, int total);
+    
+     // Logging avec couleurs
     void log(const std::string& message);
     void error(const std::string& message);
+     void success(const std::string& message);
+     void info(const std::string& message);
+     void warning(const std::string& message);
+    
+     // Couleurs Windows
+     void setConsoleColor(int color);
+     void resetConsoleColor();
 };

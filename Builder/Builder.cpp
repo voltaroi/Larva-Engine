@@ -9,32 +9,34 @@
 
 namespace fs = std::filesystem;
 
-Builder::Builder() : m_compilerType(CompilerType::UNKNOWN), m_verbose(false) {
+Builder::Builder() : m_compilerType(CompilerType::UNKNOWN), m_verbose(false), 
+                            m_jobs(std::thread::hardware_concurrency()), m_showProgress(true) {
+     if (m_jobs == 0) m_jobs = 4; // Fallback si détection échoue
     m_compilerType = detectCompiler();
 }
 
 CompilerType Builder::detectCompiler() {
-    log("Détection du compilateur...");
+    info("Detection du compilateur...");
     
     // Essayer GCC en premier (mingw64)
     if (findGCC(m_compilerPath)) {
-        log("✓ GCC détecté: " + m_compilerPath);
+        success("[OK] GCC detecte: " + m_compilerPath);
         return CompilerType::GCC;
     }
     
     // Essayer Clang
     if (findClang(m_compilerPath)) {
-        log("✓ Clang détecté: " + m_compilerPath);
+        success("[OK] Clang detecte: " + m_compilerPath);
         return CompilerType::CLANG;
     }
     
     // Essayer MSVC
     if (findMSVC(m_compilerPath)) {
-        log("✓ MSVC détecté: " + m_compilerPath);
+        success("[OK] MSVC detecte: " + m_compilerPath);
         return CompilerType::MSVC;
     }
     
-    error("✗ Aucun compilateur trouvé!");
+    error("[ERR] Aucun compilateur trouve!");
     return CompilerType::UNKNOWN;
 }
 
@@ -108,7 +110,10 @@ bool Builder::findMSVC(std::string& outPath) {
 }
 
 bool Builder::build(const ProjectConfig& config) {
-    log("=== Build de " + config.name + " ===");
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    info("=== Build de " + config.name + " ===");
+    info("Threads de compilation: " + std::to_string(m_jobs));
     
     if (m_compilerType == CompilerType::UNKNOWN) {
         error("Aucun compilateur disponible!");
@@ -119,8 +124,9 @@ bool Builder::build(const ProjectConfig& config) {
     createDirectory(config.objectDir);
     createDirectory(config.outputDir);
     
-    // Compiler chaque fichier source
+    // Préparer la liste des fichiers à compiler
     std::vector<std::string> objectFiles;
+    std::vector<std::pair<std::string, std::string>> filesToCompile;
     int compiledCount = 0;
     int skippedCount = 0;
     
@@ -145,13 +151,8 @@ bool Builder::build(const ProjectConfig& config) {
         objectFiles.push_back(objectFile);
         
         // Vérifier si recompilation nécessaire
-        if (needsRecompile(sourceFile, objectFile)) {
-            log("[COMPILE] " + sourceFile);
-            if (!compileFile(sourceFile, objectFile, config)) {
-                error("Échec de compilation: " + sourceFile);
-                return false;
-            }
-            compiledCount++;
+        if (needsRecompile(sourceFile, objectFile) || anyDependencyChanged(sourceFile, objectFile)) {
+            filesToCompile.push_back({sourceFile, objectFile});
         } else {
             if (m_verbose) {
                 log("[SKIP   ] " + sourceFile);
@@ -160,8 +161,70 @@ bool Builder::build(const ProjectConfig& config) {
         }
     }
     
-    log("Fichiers compilés: " + std::to_string(compiledCount) + 
-        ", ignorés: " + std::to_string(skippedCount));
+    // Compilation parallèle
+    if (!filesToCompile.empty()) {
+        int totalFiles = filesToCompile.size();
+        int completed = 0;
+        bool hasError = false;
+        
+        std::vector<std::thread> threads;
+        size_t fileIndex = 0;
+        
+        for (int i = 0; i < m_jobs && fileIndex < filesToCompile.size(); ++i) {
+            threads.emplace_back([&, i]() {
+                while (true) {
+                    size_t currentIndex;
+                    
+                    // Obtenir le prochain fichier à compiler
+                    {
+                        std::lock_guard<std::mutex> lock(m_progressMutex);
+                        if (fileIndex >= filesToCompile.size() || hasError) {
+                            break;
+                        }
+                        currentIndex = fileIndex++;
+                    }
+                    
+                    auto& [src, obj] = filesToCompile[currentIndex];
+                    
+                    if (m_verbose) {
+                        std::lock_guard<std::mutex> lock(m_outputMutex);
+                        log("[COMPILE] " + src);
+                    }
+                    
+                    if (!compileFile(src, obj, config)) {
+                        std::lock_guard<std::mutex> lock(m_outputMutex);
+                        error("Echec de compilation: " + src);
+                        hasError = true;
+                        break;
+                    }
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(m_progressMutex);
+                        completed++;
+                        if (m_showProgress) {
+                            showProgressBar(completed, totalFiles);
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Attendre la fin de tous les threads
+        for (auto& t : threads) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
+        
+        if (hasError) {
+            return false;
+        }
+        
+        compiledCount = totalFiles;
+    }
+    
+    info("Fichiers compiles: " + std::to_string(compiledCount) + 
+        ", ignores: " + std::to_string(skippedCount));
     
     // Linkage
     std::string outputFile = config.outputDir + "/" + config.outputName;
@@ -171,13 +234,19 @@ bool Builder::build(const ProjectConfig& config) {
         outputFile += ".exe";
     }
     
-    log("[LINK   ] " + outputFile);
+    info("[LINK   ] " + outputFile);
     if (!linkObjects(objectFiles, outputFile, config)) {
-        error("Échec du linkage!");
+        error("Echec du linkage!");
         return false;
     }
     
-    log("✓ Build réussi: " + outputFile);
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+    double seconds = duration.count() / 1000.0;
+    
+    success("[OK] Build reussi: " + outputFile);
+    success("[TIME] " + std::to_string(seconds) + "s");
+    
     return true;
 }
 
@@ -357,23 +426,23 @@ void Builder::createDirectory(const std::string& path) {
     try {
         fs::create_directories(path);
     } catch (const std::exception& e) {
-        error("Erreur création dossier: " + std::string(e.what()));
+        error("Erreur creation dossier: " + std::string(e.what()));
     }
 }
 
 bool Builder::clean(const ProjectConfig& config) {
-    log("=== Nettoyage de " + config.name + " ===");
+    info("=== Nettoyage de " + config.name + " ===");
     
     try {
         if (fs::exists(config.objectDir)) {
             fs::remove_all(config.objectDir);
-            log("✓ Dossier objets supprimé");
+            success("[OK] Dossier objets supprime");
         }
         
         std::string outputFile = config.outputDir + "/" + config.outputName + ".exe";
         if (fs::exists(outputFile)) {
             fs::remove(outputFile);
-            log("✓ Executable supprimé");
+            success("[OK] Executable supprime");
         }
     } catch (const std::exception& e) {
         error("Erreur nettoyage: " + std::string(e.what()));
@@ -393,5 +462,108 @@ void Builder::log(const std::string& message) {
 }
 
 void Builder::error(const std::string& message) {
+        setConsoleColor(12); // Rouge
     std::cerr << "ERREUR: " << message << std::endl;
+        resetConsoleColor();
+    }
+
+    void Builder::success(const std::string& message) {
+        setConsoleColor(10); // Vert
+        std::cout << message << std::endl;
+        resetConsoleColor();
+    }
+
+    void Builder::info(const std::string& message) {
+        setConsoleColor(11); // Cyan
+        std::cout << message << std::endl;
+        resetConsoleColor();
+    }
+
+    void Builder::warning(const std::string& message) {
+        setConsoleColor(14); // Jaune
+        std::cout << "ATTENTION: " << message << std::endl;
+        resetConsoleColor();
+    }
+
+    void Builder::setConsoleColor(int color) {
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleTextAttribute(hConsole, color);
+    }
+
+    void Builder::resetConsoleColor() {
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        SetConsoleTextAttribute(hConsole, 7); // Blanc par défaut
+    }
+
+    void Builder::scanDependencies(const std::string& sourceFile, std::vector<std::string>& deps) {
+        std::ifstream file(sourceFile);
+        if (!file.is_open()) return;
+    
+        std::string line;
+        while (std::getline(file, line)) {
+            // Chercher les #include "..."
+            size_t includePos = line.find("#include");
+            if (includePos != std::string::npos) {
+                size_t quoteStart = line.find('"', includePos);
+                if (quoteStart != std::string::npos) {
+                    size_t quoteEnd = line.find('"', quoteStart + 1);
+                    if (quoteEnd != std::string::npos) {
+                        std::string headerFile = line.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+                    
+                        // Construire le chemin complet
+                        fs::path sourcePath(sourceFile);
+                        fs::path headerPath = sourcePath.parent_path() / headerFile;
+                    
+                        if (fs::exists(headerPath)) {
+                            deps.push_back(headerPath.string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    bool Builder::anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile) {
+        if (!fs::exists(objectFile)) {
+            return true;
+        }
+    
+        // Scanner les dépendances si pas déjà en cache
+        if (m_dependencies.find(sourceFile) == m_dependencies.end()) {
+            std::vector<std::string> deps;
+            scanDependencies(sourceFile, deps);
+            m_dependencies[sourceFile] = deps;
+        }
+    
+        long long objectTime = getFileTimestamp(objectFile);
+    
+        // Vérifier si un header a changé
+        for (const auto& dep : m_dependencies[sourceFile]) {
+            long long depTime = getFileTimestamp(dep);
+            if (depTime > objectTime) {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+
+    void Builder::showProgressBar(int current, int total) {
+        // Barres ASCII pour compatibilité des terminaux et sortie sérialisée
+        std::lock_guard<std::mutex> lock(m_outputMutex);
+        const int barWidth = 40;
+        float progress = static_cast<float>(current) / total;
+        int pos = static_cast<int>(barWidth * progress);
+
+        std::cout << "\r[";
+        for (int i = 0; i < barWidth; ++i) {
+            if (i < pos) std::cout << '#';
+            else std::cout << '.';
+        }
+        std::cout << "] " << int(progress * 100.0f) << "% (" << current << "/" << total << ")   ";
+        std::cout.flush();
+
+        if (current == total) {
+            std::cout << std::endl;
+        }
 }

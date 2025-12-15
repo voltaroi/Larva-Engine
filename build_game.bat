@@ -1,4 +1,7 @@
 @echo off
+chcp 65001 >nul
+setlocal
+title Build Game - Larva Engine
 echo === Build du Game ===
 echo.
 
