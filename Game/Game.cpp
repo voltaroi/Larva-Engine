@@ -141,7 +141,7 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
                     windowUtils->setFullscreen();
                 });
 
-    ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, true, [this]()
+    ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, false, [this]()
                 { 
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setWindowed(800, 600);
