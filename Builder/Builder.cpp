@@ -9,6 +9,62 @@
 
 namespace fs = std::filesystem;
 
+// Simple wildcard matcher supporting '*' and '?'
+static bool matchWildcard(const std::string& text, const std::string& pattern) {
+    size_t t = 0, p = 0, star = std::string::npos, match = 0;
+    while (t < text.size()) {
+        if (p < pattern.size() && (pattern[p] == '?' || pattern[p] == text[t])) {
+            ++t; ++p;
+        } else if (p < pattern.size() && pattern[p] == '*') {
+            star = p++; match = t;
+        } else if (star != std::string::npos) {
+            p = star + 1;
+            t = ++match;
+        } else {
+            return false;
+        }
+    }
+    while (p < pattern.size() && pattern[p] == '*') ++p;
+    return p == pattern.size();
+}
+
+static bool hasWildcard(const std::string& path) {
+    return path.find('*') != std::string::npos || path.find('?') != std::string::npos;
+}
+
+static std::vector<std::string> expandWildcardPaths(const std::vector<std::string>& inputs) {
+    std::vector<std::string> expanded;
+    for (const auto& entry : inputs) {
+        if (!hasWildcard(entry)) {
+            expanded.push_back(entry);
+            continue;
+        }
+
+        fs::path patternPath(entry);
+        fs::path dir = patternPath.parent_path();
+        if (dir.empty()) dir = fs::path(".");
+        const std::string mask = patternPath.filename().string();
+
+        try {
+            if (!fs::exists(dir) || !fs::is_directory(dir)) {
+                std::cerr << "[WARN] Dossier introuvable pour wildcard: " << dir.string() << std::endl;
+                continue;
+            }
+            for (const auto& it : fs::directory_iterator(dir)) {
+                if (it.is_regular_file() && matchWildcard(it.path().filename().string(), mask)) {
+                    expanded.push_back(it.path().string());
+                }
+            }
+            if (expanded.empty()) {
+                std::cerr << "[WARN] Aucun fichier ne correspond a: " << entry << std::endl;
+            }
+        } catch (const std::exception& ex) {
+            std::cerr << "[WARN] Erreur d'expansion du wildcard " << entry << ": " << ex.what() << std::endl;
+        }
+    }
+    return expanded;
+}
+
 Builder::Builder() : m_compilerType(CompilerType::UNKNOWN), m_verbose(false), 
                             m_jobs(std::thread::hardware_concurrency()), m_showProgress(true) {
      if (m_jobs == 0) m_jobs = 4; // Fallback si détection échoue
@@ -125,12 +181,20 @@ bool Builder::build(const ProjectConfig& config) {
     createDirectory(config.outputDir);
     
     // Préparer la liste des fichiers à compiler
+    std::vector<std::string> sourceList = expandWildcardPaths(config.sourceFiles);
     std::vector<std::string> objectFiles;
     std::vector<std::pair<std::string, std::string>> filesToCompile;
     int compiledCount = 0;
     int skippedCount = 0;
     
-    for (const auto& sourceFile : config.sourceFiles) {
+    for (const auto& sourceFile : sourceList) {
+        // Skip non-C/C++ source files (e.g., headers matched by wildcards)
+        fs::path srcPath(sourceFile);
+        std::string ext = srcPath.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext != ".cpp" && ext != ".cc" && ext != ".cxx" && ext != ".c++" && ext != ".c") {
+            continue;
+        }
         // Générer le nom du fichier objet
         fs::path sourcePath(sourceFile);
         std::string objName = sourcePath.stem().string();

@@ -8,13 +8,9 @@
 
 static const float NETWORK_CAMERA_HEIGHT = -3.0f;
 
-std::vector<TextBox> textBoxes;
-
 int Game::mouseX = 0;
 int Game::mouseY = 0;
 bool Game::mousePressed = false;
-bool Game::fontLoaded = false;
-GLuint texture;
 bool escape = false;
 bool mouseIsBlocking = false;
 bool ignoreNextMouse = false;
@@ -31,11 +27,7 @@ Triangles t{};
 
 Spheres s{};
 
-Sound sound{}, sound2{};
-
 Camera player{};
-
-Model worldModel;
 
 UIButton ButtonQuit;
 UIButton ButtonSetFullscreenBorderless;
@@ -45,8 +37,6 @@ UIButton ButtonSetWindowed;
 Client client;
 
 Chat globalChat;
-
-float test = 1;
 
 struct PlayerCube {
     Quads cube;
@@ -90,25 +80,10 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     floorQuad.setPosition(0.0, -5.0, 0.0);
     floorQuad.setScale(50, 1, 50);
 
-    // sound.setVolumeMulti(0.2);
-    // sound2.setVolumeMulti(0.2);
-
-    // sound.setMaxDistance(100);
-
-    // sound.play("Sounds/didgerido-79546.mp3", 0, 0, 15);
-    // sound2.play("Sounds/drums-274805.mp3", 2, 0, 15);
-
     player.init(screenWidth, screenHeight);
 
     predictedX = player.getXPosition();
     predictedY = player.getZPosition();
-    if (worldModel.loadFromFile("Models/model.fbx")) {
-        worldModel.setScale(0.50f, 0.50f, 0.50f);
-        worldModel.setPosition(0.0f, -3.5f, 0.0f);
-    }
-    texture = UI::loadTexture("Images/Basique_Idle_64x64.png", true);
-
-    textBoxes.emplace_back(50, 100, 200, 30);
 
     // Initialize chat system
     globalChat.init(client);
@@ -146,25 +121,16 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setWindowed(800, 600);
                 });
-
-    textBoxes[0].onTextChanged = [](const std::string &newText)
-    {
-        std::cout << "TextBox 0 modifiee : " << newText << std::endl;
-    };
 }
 
 void Game::display()
 {
-    // sound.updateListenerPosition(player);
-    // sound2.updateListenerPosition(player);
     q.draw();
     qq.draw();
     qqq.draw();
     t.draw();
     s.draw();
     floorQuad.draw();
-
-    worldModel.draw();
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
@@ -354,18 +320,9 @@ void Game::updateUI(int screenWidth, int screenHeight)
     glDisable(GL_LIGHT0);
     glDisable(GL_NORMALIZE);
 
-    UI::drawText(20, 65, "HP:");
-    UI::drawProgressBar(60, 60, 200, 20, 0.75f, 1, 0, 0);
-
     if (escape)
     {
         UI::drawBox(screenWidth / 2 - 150, screenHeight / 2 - 225, 300, 450, 0.2f, 0.2f, 0.2f, 0.8f, false, 15.0f);
-        
-        // Load font only once
-        if (!fontLoaded) {
-            UI::loadfont("Fonts/KiwiSoda.ttf");
-            fontLoaded = true;
-        }
         
         UI::renderText("PAUSE", screenWidth / 2 - 70, screenHeight / 2 + 180, 1.0f);
 
@@ -392,19 +349,6 @@ void Game::updateUI(int screenWidth, int screenHeight)
         glutMotionFunc(globalMouseMotion);
         glutPassiveMotionFunc(globalMouseMotion);
     }
-
-    if (test <= 0)
-    {
-        test = 1;
-    }
-    else
-    {
-        test -= 0.01;
-    }
-    UI::drawImage(100, 100, 2, 2, texture, true, test);
-
-    for (const auto &tb : textBoxes)
-        tb.draw();
 
     // Draw chat
     globalChat.draw(screenWidth, screenHeight);
@@ -443,8 +387,6 @@ void Game::globalKeyboard(unsigned char key, int x, int y)
     case 'd': case 'D': inputRightGlobal = true; break;
     case ' ': inputJumpGlobal = true; break;
     }
-    for (auto &tb : textBoxes)
-        tb.handleKey(key);
     glutPostRedisplay();
 }
 
@@ -485,15 +427,6 @@ void Game::globalMouse(int button, int state, int x, int y)
         mousePressed = (state == GLUT_DOWN);
     }
     globalMouseMotion(x, y);
-
-    if (state == GLUT_DOWN)
-    {
-        float fx = (float)x;
-        float fy = glutGet(GLUT_WINDOW_HEIGHT) - y;
-
-        for (auto &tb : textBoxes)
-            tb.setFocus(tb.contains(fx, fy));
-    }
     glutPostRedisplay();
 }
 
