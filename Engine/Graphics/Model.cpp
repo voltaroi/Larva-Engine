@@ -9,12 +9,52 @@
 #include <cstdio>
 #include <fstream>
 #include "ResourcePak.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <string>
+#include <vector>
 
 static GLuint g_modelProgram = 0;
+static GLuint g_shadowProgram = 0;
+static GLuint g_shadowMapFBO = 0;
+static GLuint g_shadowMapTexture = 0;
+static const int SHADOW_WIDTH = 4096;
+static const int SHADOW_HEIGHT = 4096;
+static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
+static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
+static bool g_shadowPass = false;
+static GLint g_prevViewport[4] = {0,0,0,0};
 
-static GLuint compileShader(GLenum type, const char *src) {
+static bool loadTextFile(const std::string &path, std::string &out)
+{
+    out.clear();
+
+    // Try PAK first
+    std::vector<unsigned char> data;
+    if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(path, data)) {
+        out.assign(reinterpret_cast<const char*>(data.data()), data.size());
+        return true;
+    }
+
+    // Fallback: look relative to current working directory only
+    std::ifstream f(path, std::ios::binary);
+    if (f.is_open()) {
+        f.seekg(0, std::ios::end);
+        std::streampos size = f.tellg();
+        f.seekg(0, std::ios::beg);
+        out.resize((size_t)size);
+        f.read(out.data(), size);
+        return true;
+    }
+
+    return false;
+}
+
+static GLuint compileShader(GLenum type, const std::string &src) {
+    const char *csrc = src.c_str();
     GLuint s = glCreateShader(type);
-    glShaderSource(s, 1, &src, nullptr);
+    glShaderSource(s, 1, &csrc, nullptr);
     glCompileShader(s);
     GLint ok = 0; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
     if (!ok) {
@@ -26,43 +66,82 @@ static GLuint compileShader(GLenum type, const char *src) {
     return s;
 }
 
+static void initShadowMap() {
+    if (g_shadowMapFBO != 0) return;
+    
+    glGenFramebuffers(1, &g_shadowMapFBO);
+    glGenTextures(1, &g_shadowMapTexture);
+    glBindTexture(GL_TEXTURE_2D, g_shadowMapTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    float borderColor[] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_shadowMapFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, g_shadowMapTexture, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+static GLuint createShadowProgram() {
+    if (g_shadowProgram) return g_shadowProgram;
+
+    std::string vsSrc, fsSrc;
+    if (!loadTextFile("Shaders/shadow_vertex.glsl", vsSrc)) {
+        std::cerr << "Failed to load Shaders/shadow_vertex.glsl" << std::endl;
+        return 0;
+    }
+    if (!loadTextFile("Shaders/shadow_fragment.glsl", fsSrc)) {
+        std::cerr << "Failed to load Shaders/shadow_fragment.glsl" << std::endl;
+        return 0;
+    }
+
+    GLuint vsId = compileShader(GL_VERTEX_SHADER, vsSrc);
+    GLuint fsId = compileShader(GL_FRAGMENT_SHADER, fsSrc);
+    if (!vsId || !fsId) {
+        if (vsId) glDeleteShader(vsId);
+        if (fsId) glDeleteShader(fsId);
+        return 0;
+    }
+
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vsId);
+    glAttachShader(prog, fsId);
+    glLinkProgram(prog);
+    GLint ok = 0; glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char buf[1024]; glGetProgramInfoLog(prog, sizeof(buf), nullptr, buf);
+        std::cerr << "Shadow shader link error: " << buf << std::endl;
+        glDeleteProgram(prog);
+        glDeleteShader(vsId); glDeleteShader(fsId);
+        return 0;
+    }
+    glDetachShader(prog, vsId); glDetachShader(prog, fsId);
+    glDeleteShader(vsId); glDeleteShader(fsId);
+    g_shadowProgram = prog;
+    return g_shadowProgram;
+}
+
 static GLuint createModelProgram() {
     if (g_modelProgram) return g_modelProgram;
 
-    const char *vs = R"GLSL(
-        #version 120
-        varying vec3 vNormal;
-        varying vec2 vTex;
-        varying vec3 vPos;
-        void main() {
-            vNormal = normalize(gl_NormalMatrix * gl_Normal);
-            vTex = gl_MultiTexCoord0.xy;
-            vPos = vec3(gl_ModelViewMatrix * gl_Vertex);
-            gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-        }
-    )GLSL";
+    std::string vsSrc, fsSrc;
+    if (!loadTextFile("Shaders/model_vertex.glsl", vsSrc)) {
+        std::cerr << "Failed to load Shaders/model_vertex.glsl" << std::endl;
+        return 0;
+    }
+    if (!loadTextFile("Shaders/model_fragment.glsl", fsSrc)) {
+        std::cerr << "Failed to load Shaders/model_fragment.glsl" << std::endl;
+        return 0;
+    }
 
-    const char *fs = R"GLSL(
-        #version 120
-        varying vec3 vNormal;
-        varying vec2 vTex;
-        varying vec3 vPos;
-        uniform sampler2D uTex;
-        uniform vec3 uColor;
-        uniform vec3 uLightDir;
-        void main() {
-            vec3 N = normalize(vNormal);
-            vec3 L = normalize(uLightDir);
-            float diff = max(dot(N, L), 0.0);
-            vec4 tex = texture2D(uTex, vTex);
-            vec3 base = tex.rgb * uColor;
-            vec3 col = base * (0.2 + 0.8 * diff);
-            gl_FragColor = vec4(col, tex.a);
-        }
-    )GLSL";
-
-    GLuint vsId = compileShader(GL_VERTEX_SHADER, vs);
-    GLuint fsId = compileShader(GL_FRAGMENT_SHADER, fs);
+    GLuint vsId = compileShader(GL_VERTEX_SHADER, vsSrc);
+    GLuint fsId = compileShader(GL_FRAGMENT_SHADER, fsSrc);
     if (!vsId || !fsId) {
         if (vsId) glDeleteShader(vsId);
         if (fsId) glDeleteShader(fsId);
@@ -88,7 +167,8 @@ static GLuint createModelProgram() {
 }
 
 Model::Model()
-    : posX(0.0f), posY(0.0f), posZ(0.0f), scaleX(1.0f), scaleY(1.0f), scaleZ(1.0f)
+    : posX(0.0f), posY(0.0f), posZ(0.0f), scaleX(1.0f), scaleY(1.0f), scaleZ(1.0f),
+      rotX(0.0f), rotY(0.0f), rotZ(0.0f)
 {
 }
 
@@ -100,6 +180,9 @@ Model::~Model()
             glDeleteTextures(1, &id);
             m.textureId = 0;
         }
+        if (m.VAO != 0) glDeleteVertexArrays(1, &m.VAO);
+        if (m.VBO != 0) glDeleteBuffers(1, &m.VBO);
+        if (m.EBO != 0) glDeleteBuffers(1, &m.EBO);
     }
 }
 
@@ -397,82 +480,268 @@ void Model::setScale(float sx, float sy, float sz)
     scaleX = sx; scaleY = sy; scaleZ = sz;
 }
 
+void Model::setColor(float r, float g, float b)
+{
+    float cr = r / 255.0f;
+    float cg = g / 255.0f;
+    float cb = b / 255.0f;
+    for (auto &mesh : meshes) {
+        mesh.diffuseR = cr;
+        mesh.diffuseG = cg;
+        mesh.diffuseB = cb;
+    }
+}
+
+void Model::setColorRGBA(float r, float g, float b, float a)
+{
+    useColorOverride = true;
+    overrideR = r;
+    overrideG = g;
+    overrideB = b;
+    overrideA = a;
+}
+
+void Model::clearColorOverride()
+{
+    useColorOverride = false;
+}
+
+void Model::setRotation(float x, float y, float z)
+{
+    rotX = x;
+    rotY = y;
+    rotZ = z;
+}
+
+void Model::addRotation(float x, float y, float z)
+{
+    rotX += x;
+    rotY += y;
+    rotZ += z;
+}
+
 void Model::draw()
 {
-    glPushMatrix();
-    glTranslatef(posX, posY, posZ);
-    glScalef(scaleX, scaleY, scaleZ);
+    // Create model matrix
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, glm::vec3(posX, posY, posZ));
+    model = glm::rotate(model, glm::radians(rotX), glm::vec3(1.0f, 0.0f, 0.0f));
+    model = glm::rotate(model, glm::radians(rotY), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, glm::radians(rotZ), glm::vec3(0.0f, 0.0f, 1.0f));
+    model = glm::scale(model, glm::vec3(scaleX, scaleY, scaleZ));
 
-    for (const auto &m : meshes) {
-        GLuint prog = createModelProgram();
-        if (m.hasTexture && m.textureId != 0 && prog != 0) {
-            glUseProgram(prog);
-            GLint locTex = glGetUniformLocation(prog, "uTex");
-            GLint locColor = glGetUniformLocation(prog, "uColor");
-            GLint locLight = glGetUniformLocation(prog, "uLightDir");
-            if (locTex >= 0) glUniform1i(locTex, 0);
-            if (locColor >= 0) glUniform3f(locColor, m.diffuseR, m.diffuseG, m.diffuseB);
-            if (locLight >= 0) glUniform3f(locLight, 0.0f, 0.707f, 0.707f);
-
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, m.textureId);
-
-            glEnableClientState(GL_VERTEX_ARRAY);
-            glEnableClientState(GL_NORMAL_ARRAY);
-            glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-
-            std::vector<float> vbuf;
-            std::vector<float> nbuf;
-            std::vector<float> tbuf;
-            vbuf.reserve(m.verts.size()*3);
-            nbuf.reserve(m.verts.size()*3);
-            tbuf.reserve(m.verts.size()*2);
-            for (const auto &vv : m.verts) {
-                vbuf.push_back(vv.x); vbuf.push_back(vv.y); vbuf.push_back(vv.z);
-                nbuf.push_back(vv.nx); nbuf.push_back(vv.ny); nbuf.push_back(vv.nz);
-                tbuf.push_back(vv.u); tbuf.push_back(vv.v);
+    // Shadow pass
+    if (g_shadowPass) {
+        GLuint shadowProg = createShadowProgram();
+        if (shadowProg == 0) return;
+        
+        GLint modelLoc = glGetUniformLocation(shadowProg, "model");
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        
+        // Pass alpha to shadow shader
+        float alpha = useColorOverride ? overrideA : 1.0f;
+        GLint objectAlphaLoc = glGetUniformLocation(shadowProg, "objectAlpha");
+        glUniform1f(objectAlphaLoc, alpha);
+        
+        for (auto &m : meshes) {
+            // Initialize buffers on first use
+            if (!m.buffersInitialized) {
+                glGenVertexArrays(1, &m.VAO);
+                glGenBuffers(1, &m.VBO);
+                glGenBuffers(1, &m.EBO);
+                
+                glBindVertexArray(m.VAO);
+                
+                // Upload vertex data
+                glBindBuffer(GL_ARRAY_BUFFER, m.VBO);
+                glBufferData(GL_ARRAY_BUFFER, m.verts.size() * sizeof(SimpleVertex), m.verts.data(), GL_STATIC_DRAW);
+                
+                // Upload index data
+                glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.EBO);
+                glBufferData(GL_ELEMENT_ARRAY_BUFFER, m.indices.size() * sizeof(unsigned int), m.indices.data(), GL_STATIC_DRAW);
+                
+                // Position attribute
+                glEnableVertexAttribArray(0);
+                glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)0);
+                
+                // Normal attribute
+                glEnableVertexAttribArray(1);
+                glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)(3 * sizeof(float)));
+                
+                // TexCoord attribute
+                glEnableVertexAttribArray(2);
+                glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)(6 * sizeof(float)));
+                
+                glBindVertexArray(0);
+                m.buffersInitialized = true;
             }
-
-            glVertexPointer(3, GL_FLOAT, 0, vbuf.data());
-            glNormalPointer(GL_FLOAT, 0, nbuf.data());
-            glTexCoordPointer(2, GL_FLOAT, 0, tbuf.data());
-
-            glDrawElements(GL_TRIANGLES, (GLsizei)m.indices.size(), GL_UNSIGNED_INT, m.indices.data());
-
-            glDisableClientState(GL_VERTEX_ARRAY);
-            glDisableClientState(GL_NORMAL_ARRAY);
-            glDisableClientState(GL_TEXTURE_COORD_ARRAY);
-
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glUseProgram(0);
-        } else {
-            if (m.hasTexture && m.textureId != 0) {
-                glEnable(GL_TEXTURE_2D);
-                glBindTexture(GL_TEXTURE_2D, m.textureId);
-                glColor3f(1.0f, 1.0f, 1.0f);
-            } else {
-                glDisable(GL_TEXTURE_2D);
-                glColor3f(m.diffuseR, m.diffuseG, m.diffuseB);
-            }
-
-            glBegin(GL_TRIANGLES);
-            for (size_t i = 0; i < m.indices.size(); ++i) {
-                unsigned int idx = m.indices[i];
-                if (idx < m.verts.size()) {
-                    const SimpleVertex &v = m.verts[idx];
-                    glNormal3f(v.nx, v.ny, v.nz);
-                    if (m.hasTexture) glTexCoord2f(v.u, v.v);
-                    glVertex3f(v.x, v.y, v.z);
-                }
-            }
-            glEnd();
-
-            if (m.hasTexture && m.textureId != 0) {
-                glBindTexture(GL_TEXTURE_2D, 0);
-                glDisable(GL_TEXTURE_2D);
-            }
+            
+            glBindVertexArray(m.VAO);
+            glDrawElements(GL_TRIANGLES, (GLsizei)m.indices.size(), GL_UNSIGNED_INT, 0);
+            glBindVertexArray(0);
         }
+        return;
     }
 
-    glPopMatrix();
+    // Normal rendering pass
+    GLuint program = createModelProgram();
+    if (program == 0) return;
+
+    // Enable blending for transparency
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(program);
+
+    // Set uniforms
+    GLint modelLoc = glGetUniformLocation(program, "model");
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+
+    // Get current OpenGL matrices
+    GLfloat viewMatrix[16];
+    GLfloat projectionMatrix[16];
+    glGetFloatv(GL_MODELVIEW_MATRIX, viewMatrix);
+    glGetFloatv(GL_PROJECTION_MATRIX, projectionMatrix);
+
+    glm::mat4 view = glm::make_mat4(viewMatrix);
+    glm::mat4 projection = glm::make_mat4(projectionMatrix);
+
+    GLint viewLoc = glGetUniformLocation(program, "view");
+    GLint projLoc = glGetUniformLocation(program, "projection");
+    glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(projLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+    // Light space matrix for shadows
+    GLint lightSpaceLoc = glGetUniformLocation(program, "lightSpaceMatrix");
+    glUniformMatrix4fv(lightSpaceLoc, 1, GL_FALSE, glm::value_ptr(g_lightSpaceMatrix));
+
+    // Light uniforms
+    GLint lightPosLoc = glGetUniformLocation(program, "lightPos");
+    GLint viewPosLoc = glGetUniformLocation(program, "viewPos");
+    GLint lightColorLoc = glGetUniformLocation(program, "lightColor");
+    GLint objectColorLoc = glGetUniformLocation(program, "objectColor");
+
+    glm::vec3 viewPos = glm::vec3(viewMatrix[12], viewMatrix[13], viewMatrix[14]);
+    glm::vec3 lightColor = glm::vec3(1.0f, 1.0f, 1.0f);
+
+    glUniform3f(lightPosLoc, g_lightPos.x, g_lightPos.y, g_lightPos.z);
+    glUniform3f(viewPosLoc, viewPos.x, viewPos.y, viewPos.z);
+    glUniform3f(lightColorLoc, lightColor.x, lightColor.y, lightColor.z);
+
+    // Bind shadow map to texture unit 1
+    if (g_shadowMapTexture != 0) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, g_shadowMapTexture);
+        GLint shadowMapLoc = glGetUniformLocation(program, "shadowMap");
+        glUniform1i(shadowMapLoc, 1);
+    }
+
+    for (auto &m : meshes) {
+        // Initialize buffers on first use
+        if (!m.buffersInitialized) {
+            glGenVertexArrays(1, &m.VAO);
+            glGenBuffers(1, &m.VBO);
+            glGenBuffers(1, &m.EBO);
+
+            glBindVertexArray(m.VAO);
+
+            // Upload vertex data
+            glBindBuffer(GL_ARRAY_BUFFER, m.VBO);
+            glBufferData(GL_ARRAY_BUFFER, m.verts.size() * sizeof(SimpleVertex), m.verts.data(), GL_STATIC_DRAW);
+
+            // Upload index data
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m.EBO);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, m.indices.size() * sizeof(unsigned int), m.indices.data(), GL_STATIC_DRAW);
+
+            // Position attribute
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)0);
+
+            // Normal attribute
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)(3 * sizeof(float)));
+
+            // TexCoord attribute
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void*)(6 * sizeof(float)));
+
+            glBindVertexArray(0);
+            m.buffersInitialized = true;
+        }
+
+        // Set object color
+        glm::vec3 objectColor;
+        float alpha = 1.0f;
+        if (useColorOverride) {
+            objectColor = glm::vec3(overrideR, overrideG, overrideB);
+            alpha = overrideA;
+        } else {
+            objectColor = glm::vec3(m.diffuseR, m.diffuseG, m.diffuseB);
+        }
+        glUniform3f(objectColorLoc, objectColor.x, objectColor.y, objectColor.z);
+        GLint objectAlphaLoc = glGetUniformLocation(program, "objectAlpha");
+        glUniform1f(objectAlphaLoc, alpha);
+
+        // Set texture
+        GLint hasTexLoc = glGetUniformLocation(program, "hasTexture");
+        if (m.hasTexture && m.textureId != 0) {
+            glUniform1i(hasTexLoc, 1);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, m.textureId);
+            GLint diffuseTexLoc = glGetUniformLocation(program, "diffuseTexture");
+            glUniform1i(diffuseTexLoc, 0);
+        } else {
+            glUniform1i(hasTexLoc, 0);
+        }
+
+        glBindVertexArray(m.VAO);
+        glDrawElements(GL_TRIANGLES, (GLsizei)m.indices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+
+    glUseProgram(0);
+    glDisable(GL_BLEND);
+}
+
+// Static methods for shadow mapping
+void Model::BeginShadowPass()
+{
+    // Initialize shadow map if not done yet
+    initShadowMap();
+
+    // Calculate light space matrix
+    glm::mat4 lightProjection = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, 1.0f, 50.0f);
+    glm::mat4 lightView = glm::lookAt(g_lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    g_lightSpaceMatrix = lightProjection * lightView;
+
+    // Render to shadow map (save and set viewport)
+    glGetIntegerv(GL_VIEWPORT, g_prevViewport);
+    glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_shadowMapFBO);
+    glClear(GL_DEPTH_BUFFER_BIT);
+
+    // Use shadow shader
+    GLuint shadowProg = createShadowProgram();
+    if (shadowProg != 0) {
+        glUseProgram(shadowProg);
+        GLint lightSpaceLoc = glGetUniformLocation(shadowProg, "lightSpaceMatrix");
+        glUniformMatrix4fv(lightSpaceLoc, 1, GL_FALSE, glm::value_ptr(g_lightSpaceMatrix));
+    }
+
+    g_shadowPass = true;
+}
+
+void Model::EndShadowPass()
+{
+    g_shadowPass = false;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glUseProgram(0);
+
+    // Restore previous viewport saved in BeginShadowPass
+    glViewport(g_prevViewport[0], g_prevViewport[1], g_prevViewport[2], g_prevViewport[3]);
+}
+
+void Model::SetLightPosition(float x, float y, float z)
+{
+    g_lightPos = glm::vec3(x, y, z);
 }

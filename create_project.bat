@@ -20,8 +20,14 @@ rem Create folder layout
 mkdir "%PROJ_DIR%\client\src" >nul
 mkdir "%PROJ_DIR%\server\src" >nul
 mkdir "%PROJ_DIR%\configs" >nul
-mkdir "%PROJ_DIR%\Assets" >nul
-echo (place project assets here) >"%PROJ_DIR%\Assets\README.txt"
+
+rem Copy Assets from Template
+if exist "%ROOT%Template\Assets" (
+    xcopy /E /I /Y "%ROOT%Template\Assets\" "%PROJ_DIR%\Assets\" >nul
+) else (
+    mkdir "%PROJ_DIR%\Assets" >nul
+    echo (place project assets here) >"%PROJ_DIR%\Assets\README.txt"
+)
 
 set TEMPLATE_CLIENT=%ROOT%Template\client\src
 if exist "%TEMPLATE_CLIENT%\main.cpp" (
@@ -63,12 +69,9 @@ rem Client config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Camera.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Chat.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Model.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Quads.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/ResourcePak.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Sound.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Spheres.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/TextBox.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Triangles.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/UI.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/UIButton.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/WindowUtils.cpp",
@@ -179,7 +182,10 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo )
 
 >>"%PROJ_DIR%\build_client.bat" echo set OUT=projects\%PROJ%\Release\Client
+>>"%PROJ_DIR%\build_client.bat" echo set ASSETS_TEMP=projects\%PROJ%\Assets
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "%%OUT%%" mkdir "%%OUT%%"
+>>"%PROJ_DIR%\build_client.bat" echo if not exist "%%ASSETS_TEMP%%\Shaders" mkdir "%%ASSETS_TEMP%%\Shaders"
+>>"%PROJ_DIR%\build_client.bat" echo copy /Y "Engine\Graphics\Shaders\*" "%%ASSETS_TEMP%%\Shaders\" ^>nul
 >>"%PROJ_DIR%\build_client.bat" echo powershell -ExecutionPolicy Bypass -Command "& { $assets = (Resolve-Path 'projects/%PROJ%/Assets').Path; .\createPak.ps1 $assets 'projects/%PROJ%/Release/Client/game.pak' }"
 >>"%PROJ_DIR%\build_client.bat" echo copy /Y "Dependencies\openal-soft-1.24.2-bin\bin\Win64\soft_oal.dll" "%%OUT%%\" ^>nul
 

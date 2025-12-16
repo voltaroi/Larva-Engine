@@ -158,8 +158,38 @@ void UI::drawProgressBar(float x, float y, float width, float height, float perc
     glEnd();
 }
 
-void UI::drawBox(float x, float y, float width, float height, float r, float g, float b, float alpha, bool border, float radius)
+void UI::drawBox(float x, float y, float width, float height, float r, float g, float b, float alpha, bool border, float radius, AnchorH anchorH, AnchorV anchorV, int screenWidth, int screenHeight)
 {
+    // Calculate actual position based on anchor
+    float actualX = x;
+    float actualY = y;
+
+    if (screenWidth > 0 && screenHeight > 0) {
+        switch (anchorH) {
+        case AnchorH::Left:
+            actualX = x;
+            break;
+        case AnchorH::Center:
+            actualX = x - width / 2;
+            break;
+        case AnchorH::Right:
+            actualX = x - width;
+            break;
+        }
+
+        switch (anchorV) {
+        case AnchorV::Bottom:
+            actualY = y;
+            break;
+        case AnchorV::Middle:
+            actualY = y - height / 2;
+            break;
+        case AnchorV::Top:
+            actualY = y - height;
+            break;
+        }
+    }
+
     const int numSegments = 20;
 
     glEnable(GL_BLEND);
@@ -167,24 +197,24 @@ void UI::drawBox(float x, float y, float width, float height, float r, float g, 
     glColor4f(r, g, b, alpha);
 
     glBegin(GL_QUADS);
-    glVertex2f(x + radius, y);
-    glVertex2f(x + width - radius, y);
-    glVertex2f(x + width - radius, y + height);
-    glVertex2f(x + radius, y + height);
+    glVertex2f(actualX + radius, actualY);
+    glVertex2f(actualX + width - radius, actualY);
+    glVertex2f(actualX + width - radius, actualY + height);
+    glVertex2f(actualX + radius, actualY + height);
     glEnd();
 
     glBegin(GL_QUADS);
-    glVertex2f(x + width, y + radius);
-    glVertex2f(x + width - radius, y + radius);
-    glVertex2f(x + width - radius, y + height - radius);
-    glVertex2f(x + width, y + height - radius);
+    glVertex2f(actualX + width, actualY + radius);
+    glVertex2f(actualX + width - radius, actualY + radius);
+    glVertex2f(actualX + width - radius, actualY + height - radius);
+    glVertex2f(actualX + width, actualY + height - radius);
     glEnd();
 
     glBegin(GL_QUADS);
-    glVertex2f(x, y + radius);
-    glVertex2f(x + radius, y + radius);
-    glVertex2f(x + radius, y + height - radius);
-    glVertex2f(x, y + height - radius);
+    glVertex2f(actualX, actualY + radius);
+    glVertex2f(actualX + radius, actualY + radius);
+    glVertex2f(actualX + radius, actualY + height - radius);
+    glVertex2f(actualX, actualY + height - radius);
     glEnd();
 
     auto drawCorner = [&](float cx, float cy, float startAngle)
@@ -201,10 +231,10 @@ void UI::drawBox(float x, float y, float width, float height, float r, float g, 
         glEnd();
     };
 
-    drawCorner(x + radius, y + radius, M_PI);
-    drawCorner(x + width - radius, y + radius, 1.5f * M_PI);
-    drawCorner(x + width - radius, y + height - radius, 0);
-    drawCorner(x + radius, y + height - radius, 0.5f * M_PI);
+    drawCorner(actualX + radius, actualY + radius, M_PI);
+    drawCorner(actualX + width - radius, actualY + radius, 1.5f * M_PI);
+    drawCorner(actualX + width - radius, actualY + height - radius, 0);
+    drawCorner(actualX + radius, actualY + height - radius, 0.5f * M_PI);
 
     if (border)
     {
@@ -217,10 +247,10 @@ void UI::drawBox(float x, float y, float width, float height, float r, float g, 
             float dx = cos(theta) * radius;
             float dy = sin(theta) * radius;
 
-            glVertex2f(x + radius - dx, y + radius - dy);
-            glVertex2f(x + width - radius + dx, y + radius - dy);
-            glVertex2f(x + width - radius + dx, y + height - radius + dy);
-            glVertex2f(x + radius - dx, y + height - radius + dy);
+            glVertex2f(actualX + radius - dx, actualY + radius - dy);
+            glVertex2f(actualX + width - radius + dx, actualY + radius - dy);
+            glVertex2f(actualX + width - radius + dx, actualY + height - radius + dy);
+            glVertex2f(actualX + radius - dx, actualY + height - radius + dy);
         }
         glEnd();
     }

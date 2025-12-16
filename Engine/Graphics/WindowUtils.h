@@ -3,7 +3,7 @@
 class WindowUtils
 {
 private:
-    int FOV = 60;
+    int FOV = 75;
 public:
     void setFullscreenBorderless(int screenWidth, int screenHeight);
     void setFullscreen();

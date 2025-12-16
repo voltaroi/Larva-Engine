@@ -21,11 +21,8 @@ bool inputLeftGlobal = false;
 bool inputRightGlobal = false;
 bool inputJumpGlobal = false;
 
-Quads q{}, qq{}, qqq{}, floorQuad{};
-
-Triangles t{};
-
-Spheres s{};
+Model cubeModel1, cubeModel2, cubeModel3, floorModel;
+Model triangleModel, sphereModel;
 
 Camera player{};
 
@@ -39,13 +36,17 @@ Client client;
 Chat globalChat;
 
 struct PlayerCube {
-    Quads cube;
+    Model cube;
     float r, g, b;
     int id = -1;
     float curX = 0.0f;
     float curY = 0.0f;
     float targetX = 0.0f;
     float targetY = 0.0f;
+
+    PlayerCube() {
+        cube.loadFromFile("Models/cube.fbx");
+    }
 };
 
 std::vector<PlayerCube> players;
@@ -69,21 +70,27 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
         client.sendMessage("HELLO");
     }
     windowUtils = &windowUtil;
-    q.setColor(210, 92, 41);
-    q.setScale(1, 1, 0.2);
 
-    q.setPosition(0.0, -4.0, 15.0);
-    qq.setPosition(2.0, -2.0, 15.0);
-    qqq.setPosition(4.0, -2.0, 15.0);
-    t.setPosition(0.0, -2.0, 0.0);
-    s.setPosition(4.0, -2.0, 0.0);
-    floorQuad.setPosition(0.0, -5.0, 0.0);
-    floorQuad.setScale(50, 1, 50);
+    // Load models
+    cubeModel1.loadFromFile("Models/cube.fbx");
+    cubeModel2.loadFromFile("Models/cube.fbx");
+    cubeModel3.loadFromFile("Models/cube.fbx");
+    cubeModel3.setColorRGBA(1.0f, 0.0f, 0.0, 0.5f);
+    floorModel.loadFromFile("Models/cube.fbx");
+    triangleModel.loadFromFile("Models/triangle.fbx");
+    sphereModel.loadFromFile("Models/sphere.fbx");
+    
+    cubeModel1.setScale(1, 1, 0.2);
+    cubeModel1.setPosition(0.0, -4.0, 15.0);
+    cubeModel2.setPosition(2.0, -2.0, 15.0);
+    cubeModel3.setPosition(4.0, -2.0, 15.0);
+    floorModel.setPosition(0.0, -5.0, 0.0);
+    floorModel.setScale(50, 1, 50);
+
+    triangleModel.setPosition(0.0, -2.0, 0.0);
+    sphereModel.setPosition(4.0, -2.0, 0.0);
 
     player.init(screenWidth, screenHeight);
-
-    predictedX = player.getXPosition();
-    predictedY = player.getZPosition();
 
     // Initialize chat system
     globalChat.init(client);
@@ -125,12 +132,28 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
 void Game::display()
 {
-    q.draw();
-    qq.draw();
-    qqq.draw();
-    t.draw();
-    s.draw();
-    floorQuad.draw();
+    Model::BeginShadowPass();
+    cubeModel1.draw();
+    cubeModel2.draw();
+    cubeModel3.draw();
+    floorModel.draw();
+    triangleModel.draw();
+    sphereModel.draw();
+
+    {
+        std::lock_guard<std::mutex> lg(playersMutex);
+        for (auto &p : players) {
+            p.cube.draw();
+        }
+    }
+
+    Model::EndShadowPass();
+    cubeModel1.draw();
+    cubeModel2.draw();
+    cubeModel3.draw();
+    triangleModel.draw();
+    sphereModel.draw();
+    floorModel.draw();
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
@@ -238,18 +261,14 @@ void Game::update()
             }
         }
     }
-    qq.addRotation(1.0, 1.0, 1.0);
-    qqq.addRotation(1.0, 1.0, 1.0);
-    t.addRotation(0.0, 1.0, 0.0);
-    s.addRotation(1.0, 0.0, 0.0);
+    cubeModel2.addRotation(1.0, 1.0, 1.0);
+    cubeModel3.addRotation(1.0, 1.0, 1.0);
+    triangleModel.addRotation(0.0, 1.0, 0.0);
+    sphereModel.addRotation(1.0, 0.0, 0.0);
 
     player.networkUpdate();
 
     cubes.clear();
-    cubes.push_back(q.getAABB());
-    cubes.push_back(qq.getAABB());
-    cubes.push_back(qqq.getAABB());
-    cubes.push_back(floorQuad.getAABB());
 
     static std::chrono::steady_clock::time_point lastPlayersUpdate = std::chrono::steady_clock::now();
     auto nowPlayers = std::chrono::steady_clock::now();

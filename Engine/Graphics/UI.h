@@ -22,6 +22,10 @@ struct UICharacter
 
 class UI
 {
+public:
+	enum class AnchorH { Left, Center, Right };
+	enum class AnchorV { Bottom, Middle, Top };
+
 private:
 	static float textR;
 	static float textG;
@@ -34,7 +38,7 @@ public:
 	static void renderText(std::string text, float x, float y, float scale);
 	static void drawText(float x, float y, const char *text, void *font = GLUT_BITMAP_HELVETICA_18);
 	static void drawProgressBar(float x, float y, float width, float height, float percentage, float r, float g, float b);
-	static void drawBox(float x, float y, float width, float height, float r, float g, float b, float alpha = 1.0f, bool border = false, float radius = 0.0f);
+	static void drawBox(float x, float y, float width, float height, float r, float g, float b, float alpha = 1.0f, bool border = false, float radius = 0.0f, AnchorH anchorH = AnchorH::Left, AnchorV anchorV = AnchorV::Bottom, int screenWidth = 0, int screenHeight = 0);
 	static void drawImage(float x, float y, float width, float height, GLuint textureId, bool useOriginalSize, float opacity);
 	static GLuint loadTexture(const char *path, bool nearest);
 };

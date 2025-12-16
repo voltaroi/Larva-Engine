@@ -2,6 +2,7 @@
 #include <GL/glut.h>
 #include <chrono>
 #include <iostream>
+#include <windows.h>
 #include "Game.h"
 #include "Engine/Graphics/WindowUtils.h"
 #include "Engine/Graphics/ResourcePak.h"
@@ -45,8 +46,19 @@ int main(int argc, char **argv)
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
 
-    screenWidth = GetSystemMetrics(SM_CXSCREEN);
-    screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    // Get actual monitor dimensions using GetMonitorInfo
+    MONITORINFO mi = {sizeof(mi)};
+    if (GetMonitorInfo(MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi))
+    {
+        screenWidth = mi.rcMonitor.right - mi.rcMonitor.left;
+        screenHeight = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    }
+    else
+    {
+        // Fallback to GetSystemMetrics if GetMonitorInfo fails
+        screenWidth = GetSystemMetrics(SM_CXSCREEN);
+        screenHeight = GetSystemMetrics(SM_CYSCREEN);
+    }
 
     glutInitWindowSize(screenWidth, screenHeight);
     glutInitWindowPosition(0, 0);
@@ -88,10 +100,16 @@ void display()
     game.display();
 
     // === UI START ===
+    // Get actual viewport dimensions for accurate UI scaling
+    GLint viewport[4];
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    int uiWidth = viewport[2];
+    int uiHeight = viewport[3];
+    
     glMatrixMode(GL_PROJECTION);
     glPushMatrix();
     glLoadIdentity();
-    gluOrtho2D(0, screenWidth, 0, screenHeight);
+    gluOrtho2D(0, uiWidth, 0, uiHeight);
 
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
@@ -99,7 +117,7 @@ void display()
 
     glDisable(GL_DEPTH_TEST);
 
-    game.updateUI(screenWidth, screenHeight);
+    game.updateUI(uiWidth, uiHeight);
 
     glEnable(GL_DEPTH_TEST);
 
