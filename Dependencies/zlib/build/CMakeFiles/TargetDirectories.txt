@@ -1,0 +1,9 @@
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/zlib.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/zlibstatic.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/test.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/edit_cache.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/rebuild_cache.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/list_install_components.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/install.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/install/local.dir
+C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/build/CMakeFiles/install/strip.dir
