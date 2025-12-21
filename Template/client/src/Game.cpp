@@ -108,22 +108,22 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     glLightfv(GL_LIGHT0, GL_DIFFUSE, lightCol);
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientCol);
 
-    ButtonQuit.init(0, 80, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Quitter", 0.0f, 0.5f, 0.5f, false, []()
+    ButtonQuit.init(0, 80, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Quitter", 0.0f, 0.5f, 0.5f, false, 0.0f, []()
                 { std::cout << "Bouton cliqu� !" << std::endl;
                 exit(0); });
 
-    ButtonSetFullscreenBorderless.init(0, 30, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "FullscreenBorderless", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetFullscreenBorderless.init(0, 30, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "FullscreenBorderless", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
                 { 
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setFullscreenBorderless(800, 600);
                 });
 
-    ButtonSetFullscreen.init(0, -20, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Fullscreen", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetFullscreen.init(0, -20, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Fullscreen", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
                 { std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setFullscreen();
                 });
 
-    ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, false, [this]()
+    ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
                 { 
                     std::cout << "Bouton cliqu� !" << std::endl;
                     windowUtils->setWindowed(800, 600);

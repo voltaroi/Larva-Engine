@@ -38,6 +38,8 @@ public:
     void scroll(float delta);
     void handleMouseWheel(int wheel, int direction, int x, int y);
 
+    void setSize(float width, float height);
+
 private:
     float x, y, width, height;
     float r, g, b, alpha;
