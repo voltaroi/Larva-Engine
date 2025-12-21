@@ -3,14 +3,14 @@
 
 void WindowUtils::setFullscreenBorderless(int screenWidth, int screenHeight)
 {
-    HWND hwnd = FindWindowA(NULL, "Engine");
+    HWND hwnd = FindWindowA(NULL, name);
     SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
     SetWindowPos(hwnd, HWND_TOP, 0, 0, screenWidth, screenHeight, SWP_SHOWWINDOW);
 }
 
 void WindowUtils::setFullscreen()
 {
-    HWND hwnd = FindWindowA(NULL, "Engine");
+    HWND hwnd = FindWindowA(NULL, name);
     SetWindowLong(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
     MONITORINFO mi = {sizeof(mi)};
     if (GetMonitorInfo(MonitorFromWindow(hwnd, MONITOR_DEFAULTTOPRIMARY), &mi))
@@ -25,7 +25,7 @@ void WindowUtils::setFullscreen()
 
 void WindowUtils::setWindowed(int width, int height)
 {
-    HWND hwnd = FindWindowA(NULL, "Engine");
+    HWND hwnd = FindWindowA(NULL, name);
     SetWindowLong(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
     SetWindowPos(hwnd, HWND_TOP,
                  (GetSystemMetrics(SM_CXSCREEN) - width) / 2,
@@ -42,4 +42,10 @@ int WindowUtils::getFOV()
 void WindowUtils::setFOV(int fov)
 {
     FOV = fov;
+}
+
+void WindowUtils::setName(const char* newName)
+{
+    name = newName;
+    glutSetWindowTitle(name);
 }

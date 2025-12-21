@@ -22,6 +22,7 @@ public:
 
     void update(float mouseX, float mouseY, bool mousePressed);
     void draw();
+    void updateSizeFromLabel();
 private:
     bool wasPressedLastFrame = false;
     bool border = false;
@@ -39,5 +40,4 @@ private:
     void* font = GLUT_BITMAP_HELVETICA_18;
     
     void updatePosition();
-    void updateSizeFromLabel();
 };

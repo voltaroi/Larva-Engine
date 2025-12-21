@@ -62,7 +62,7 @@ int main(int argc, char **argv)
 
     glutInitWindowSize(screenWidth, screenHeight);
     glutInitWindowPosition(0, 0);
-    glutCreateWindow("Engine");
+    glutCreateWindow("Larva-Engine");
 
     windowUtils.setFullscreenBorderless(screenWidth, screenHeight);
 
