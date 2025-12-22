@@ -12,7 +12,7 @@ set ROOT=%~dp0
 set PROJ_DIR=%ROOT%projects\%PROJ%
 
 if exist "%PROJ_DIR%" (
-    echo Le projet "%PROJ%" existe deja.
+    echo The project "%PROJ%" already exists.
     exit /b 1
 )
 
@@ -64,17 +64,8 @@ rem Client config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "staticLink": true,
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "sourceFiles": [
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "projects/%PROJ%/client/src/main.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "projects/%PROJ%/client/src/Game.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Camera.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Chat.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Model.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/ResourcePak.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/Sound.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/TextBox.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/UI.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/UIButton.cpp",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/WindowUtils.cpp",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "projects/%PROJ%/client/src/*",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Network/Client/Client.cpp"
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     ],
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
@@ -134,7 +125,7 @@ rem Server config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "staticLink": false,
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo(
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "sourceFiles": [
->>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "projects/%PROJ%/server/src/main.cpp",
+>>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "projects/%PROJ%/server/src/*",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "Engine/Network/ServerChat.cpp",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "Engine/Network/Server/Server.cpp"
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     ],

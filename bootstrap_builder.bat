@@ -1,5 +1,11 @@
-REM Créer le dossier Dependencies/Compiler/ si absent
+REM Create the Dependencies/Compiler/ folder if it doesn't exist.
 if not exist "Dependencies\Compiler" mkdir "Dependencies\Compiler"
+
+REM Remove clang folder if it exists to avoid conflicts
+if exist "Dependencies\Compiler\clang" rmdir /S /Q "Dependencies\Compiler\clang"
+
+REM Create the Dependencies/Compiler/clang/ folder
+mkdir "Dependencies\Compiler\clang"
 @echo off
 echo === Compilation du Builder (bootstrap) ===
 echo.
@@ -8,18 +14,19 @@ if not exist "Release\Builder" mkdir "Release\Builder"
 
 echo Compilation en cours...
 
-
-
-REM Installer Clang/LLVM si absent
+REM Install Clang/LLVM if missing
 if not exist "Dependencies\Compiler\clang\bin\clang++.exe" (
     echo Clang/LLVM non trouve, installation en cours...
-    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile 'Dependencies/Compiler/clang_tmp.tar.xz'"
+    if not exist "Dependencies/Compiler/clang_tmp.tar.xz" (
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile 'Dependencies/Compiler/clang_tmp.tar.xz'"
+    ) else (
+        echo Archive deja presente, pas de telechargement.
+    )
     tar -xf Dependencies/Compiler/clang_tmp.tar.xz -C Dependencies/Compiler/clang
     del Dependencies/Compiler/clang_tmp.tar.xz
-    REM Déplacer le contenu à la racine si besoin
     if exist "Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc" (
-        move Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc\* Dependencies\Compiler\clang\
-        rmdir /S /Q Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc
+        xcopy /E /I /Y "Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc\*" "Dependencies\Compiler\clang\"
+        rmdir /S /Q "Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc"
     )
 )
 

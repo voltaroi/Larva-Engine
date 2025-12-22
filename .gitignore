@@ -3,3 +3,4 @@ Dependencies/Compiler/clang/bin/*
 *.o
 *.pak
 /projects/*
+*.tar.xz
