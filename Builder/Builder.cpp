@@ -73,27 +73,10 @@ Builder::Builder() : m_compilerType(CompilerType::UNKNOWN), m_verbose(false),
 
 CompilerType Builder::detectCompiler() {
     info("Detection du compilateur...");
-    
-    // Essayer GCC en premier (mingw64)
-    if (findGCC(m_compilerPath)) {
-        success("[OK] GCC detecte: " + m_compilerPath);
-        return CompilerType::GCC;
-    }
-    
-    // Essayer Clang
-    if (findClang(m_compilerPath)) {
-        success("[OK] Clang detecte: " + m_compilerPath);
-        return CompilerType::CLANG;
-    }
-    
-    // Essayer MSVC
-    if (findMSVC(m_compilerPath)) {
-        success("[OK] MSVC detecte: " + m_compilerPath);
-        return CompilerType::MSVC;
-    }
-    
-    error("[ERR] Aucun compilateur trouve!");
-    return CompilerType::UNKNOWN;
+    // Forcer Clang/LLVM comme compilateur par défaut
+    m_compilerPath = "Dependencies/Compiler/clang/bin/clang++.exe";
+    success("[OK] Clang force: " + m_compilerPath);
+    return CompilerType::CLANG;
 }
 
 bool Builder::findGCC(std::string& outPath) {

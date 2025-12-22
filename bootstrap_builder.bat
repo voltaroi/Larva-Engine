@@ -6,7 +6,22 @@ if not exist "Release\Builder" mkdir "Release\Builder"
 
 echo Compilation en cours...
 
-g++ -std=c++17 ^
+
+
+REM Installer Clang/LLVM si absent
+if not exist "Dependencies\Compiler\clang\bin\clang++.exe" (
+    echo Clang/LLVM non trouve, installation en cours...
+    powershell -Command "Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile 'Dependencies/Compiler/clang_tmp.tar.xz'"
+    tar -xf Dependencies/Compiler/clang_tmp.tar.xz -C Dependencies/Compiler/clang
+    del Dependencies/Compiler/clang_tmp.tar.xz
+    REM Déplacer le contenu à la racine si besoin
+    if exist "Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc" (
+        move Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc\* Dependencies\Compiler\clang\
+        rmdir /S /Q Dependencies\Compiler\clang\clang+llvm-21.1.8-x86_64-pc-windows-msvc
+    )
+)
+
+Dependencies\Compiler\clang\bin\clang++.exe -std=c++17 ^
     Builder/main.cpp ^
     Builder/Builder.cpp ^
     Builder/ProjectConfig.cpp ^

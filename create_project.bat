@@ -181,13 +181,18 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo ^    exit /b 1
 >>"%PROJ_DIR%\build_client.bat" echo )
 
+
+>>"%PROJ_DIR%\build_client.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
+>>"%PROJ_DIR%\build_client.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
+>>"%PROJ_DIR%\build_client.bat" echo rem Compilation du client
+>>"%PROJ_DIR%\build_client.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\client\src\main.cpp -o projects\%PROJ%\Release\Client\client.exe
 >>"%PROJ_DIR%\build_client.bat" echo set OUT=projects\%PROJ%\Release\Client
 >>"%PROJ_DIR%\build_client.bat" echo set ASSETS_TEMP=projects\%PROJ%\Assets
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "%%OUT%%" mkdir "%%OUT%%"
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "%%ASSETS_TEMP%%\Shaders" mkdir "%%ASSETS_TEMP%%\Shaders"
 >>"%PROJ_DIR%\build_client.bat" echo copy /Y "Engine\Graphics\Shaders\*" "%%ASSETS_TEMP%%\Shaders\" ^>nul
 >>"%PROJ_DIR%\build_client.bat" echo powershell -ExecutionPolicy Bypass -Command "& { $assets = (Resolve-Path 'projects/%PROJ%/Assets').Path; .\createPak.ps1 $assets 'projects/%PROJ%/Release/Client/game.pak' }"
->>"%PROJ_DIR%\build_client.bat" echo copy /Y "Dependencies\openal-soft-1.24.2-bin\bin\Win64\soft_oal.dll" "%%OUT%%\" ^>nul
+>>"%PROJ_DIR%\build_client.bat" echo copy /Y "Dependencies\openal-soft-1.24.2-bin\bin\Win64\soft_oal.dll" "%%OUT%%" ^>nul
 
 >>"%PROJ_DIR%\build_client.bat" echo echo.
 >>"%PROJ_DIR%\build_client.bat" echo color 0A
@@ -224,6 +229,11 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo ^    popd
 >>"%PROJ_DIR%\build_server.bat" echo ^    exit /b 1
 >>"%PROJ_DIR%\build_server.bat" echo )
+
+>>"%PROJ_DIR%\build_server.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
+>>"%PROJ_DIR%\build_server.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
+>>"%PROJ_DIR%\build_server.bat" echo rem Compilation du serveur
+>>"%PROJ_DIR%\build_server.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\server\src\main.cpp -o projects\%PROJ%\Release\Server\server.exe
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo color 0A
 >>"%PROJ_DIR%\build_server.bat" echo echo === Build server %PROJ% termine ! ===
@@ -232,6 +242,9 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo pause
 >>"%PROJ_DIR%\build_server.bat" echo popd
 
+
+rem Les scripts de build client/server utilisent le compilateur intégré Clang/LLVM
+rem Chemin attendu : Dependencies\Compiler\clang\bin\clang++.exe
 color 0A
 echo Projet "%PROJ%" cree dans projects\%PROJ%.
 color 07
