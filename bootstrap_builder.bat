@@ -1,3 +1,5 @@
+REM Créer le dossier Dependencies/Compiler/ si absent
+if not exist "Dependencies\Compiler" mkdir "Dependencies\Compiler"
 @echo off
 echo === Compilation du Builder (bootstrap) ===
 echo.
