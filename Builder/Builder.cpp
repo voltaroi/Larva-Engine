@@ -178,28 +178,18 @@ bool Builder::build(const ProjectConfig& config) {
         if (ext != ".cpp" && ext != ".cc" && ext != ".cxx" && ext != ".c++" && ext != ".c") {
             continue;
         }
-        // Générer le nom du fichier objet
-        fs::path sourcePath(sourceFile);
-        std::string objName = sourcePath.stem().string();
-        
-        // Pour éviter les collisions de noms, inclure le chemin relatif
-        std::string relativePath = sourceFile;
-        std::replace(relativePath.begin(), relativePath.end(), '\\', '_');
-        std::replace(relativePath.begin(), relativePath.end(), '/', '_');
-        std::replace(relativePath.begin(), relativePath.end(), ':', '_');
-        
-        std::string objectFile = config.objectDir + "/" + relativePath;
-        if (m_compilerType == CompilerType::MSVC) {
-            objectFile += ".obj";
-        } else {
-            objectFile += ".o";
-        }
-        
+        // Générer le chemin relatif du fichier source par rapport à la racine du projet
+        fs::path rel = fs::relative(sourceFile, ".");
+        fs::path objPath = fs::path(config.objectDir) / rel;
+        objPath.replace_extension(m_compilerType == CompilerType::MSVC ? ".obj" : ".o");
+        createDirectory(objPath.parent_path().string());
+        std::string objectFile = objPath.generic_string();
         objectFiles.push_back(objectFile);
-        
         // Vérifier si recompilation nécessaire
         if (needsRecompile(sourceFile, objectFile) || anyDependencyChanged(sourceFile, objectFile)) {
-            filesToCompile.push_back({sourceFile, objectFile});
+            // Normaliser le chemin source pour la ligne de commande
+            fs::path srcPath(sourceFile);
+            filesToCompile.push_back({srcPath.generic_string(), objectFile});
         } else {
             if (m_verbose) {
                 log("[SKIP   ] " + sourceFile);
@@ -273,6 +263,26 @@ bool Builder::build(const ProjectConfig& config) {
     info("Fichiers compiles: " + std::to_string(compiledCount) + 
         ", ignores: " + std::to_string(skippedCount));
     
+    // Vérification obligatoire : bloquer le link si aucun objet valide
+    if (objectFiles.empty()) {
+        error("Aucun fichier objet genere, linkage annule.");
+        return false;
+    }
+
+    // Vérifier que les fichiers objets existent vraiment
+    bool hasValidObjects = false;
+    for (const auto& obj : objectFiles) {
+        if (fs::exists(obj)) {
+            hasValidObjects = true;
+            break;
+        }
+    }
+
+    if (!hasValidObjects) {
+        error("Aucun fichier objet valide trouve sur disque, linkage annule.");
+        return false;
+    }
+
     // Linkage
     std::string outputFile = config.outputDir + "/" + config.outputName;
     if (m_compilerType == CompilerType::MSVC) {
@@ -280,7 +290,7 @@ bool Builder::build(const ProjectConfig& config) {
     } else {
         outputFile += ".exe";
     }
-    
+
     info("[LINK   ] " + outputFile);
     if (!linkObjects(objectFiles, outputFile, config)) {
         error("Echec du linkage!");
@@ -300,23 +310,92 @@ bool Builder::build(const ProjectConfig& config) {
 bool Builder::compileFile(const std::string& sourceFile, 
                           const std::string& objectFile,
                           const ProjectConfig& config) {
-    
-    // Créer le dossier de l'objet si nécessaire
     fs::path objPath(objectFile);
-    if (objPath.has_parent_path()) {
-        createDirectory(objPath.parent_path().string());
+    if (objPath.has_parent_path()) createDirectory(objPath.parent_path().string());
+
+    // Utiliser un fichier de réponse unique par compilation
+    std::string rspFile = objPath.string() + ".rsp";
+    std::ofstream rsp(rspFile, std::ios::out | std::ios::trunc);
+    if (!rsp) {
+        error("Impossible de créer le fichier de réponse pour la compilation.");
+        return false;
     }
-    
-    std::string command = buildCompileCommand(sourceFile, objectFile, config);
-    return executeCommand(command);
+    // Arguments principaux (tout sur une seule ligne, options et valeurs ensemble)
+    fs::path absSrc = fs::absolute(fs::path(sourceFile));
+    fs::path absObj = fs::absolute(objPath);
+    rsp << "-c " << '"' << absSrc.generic_string() << '"' << "\r\n";
+    rsp << "-o " << '"' << absObj.generic_string() << '"' << "\r\n";
+    rsp << "-std=" << config.cppStandard << "\r\n";
+    // Includes
+    for (const auto& inc : config.includeDirs) {
+        fs::path absInc = fs::absolute(fs::path(inc));
+        rsp << "-I" << '"' << absInc.generic_string() << '"' << "\r\n";
+    }
+    // Defines
+    for (const auto& def : config.defines) {
+        rsp << "-D" << def << "\r\n";
+    }
+    // Options de build
+    if (config.buildType == BuildType::DEBUG) {
+        rsp << "-g\r\n";
+        rsp << "-O0\r\n";
+    } else {
+        rsp << "-O2\r\n";
+    }
+    rsp.close();
+    std::string command = '"' + fs::absolute(fs::path(m_compilerPath)).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
+    std::cout << "[DEBUG CMD] " << command << std::endl;
+    bool result = executeCommand(command);
+    return result;
 }
 
 bool Builder::linkObjects(const std::vector<std::string>& objectFiles,
                           const std::string& outputFile,
                           const ProjectConfig& config) {
     
-    std::string command = buildLinkCommand(objectFiles, outputFile, config);
-    return executeCommand(command);
+    // Utiliser un fichier de réponse unique par linkage
+    fs::path outPath(outputFile);
+    std::string rspFile = outPath.stem().string() + ".link.rsp";
+    std::ofstream rsp(rspFile);
+    if (!rsp) {
+        error("Impossible de créer le fichier de réponse pour le linkage.");
+        return false;
+    }
+    // Fichiers objets
+    for (const auto& obj : objectFiles) {
+        fs::path absObj = fs::absolute(fs::path(obj));
+        rsp << '"' << absObj.generic_string() << '"' << "\r\n";
+    }
+    // Output
+    fs::path absOut = fs::absolute(fs::path(outputFile));
+    rsp << "-o " << '"' << absOut.generic_string() << '"' << "\r\n";
+    // Forcer l'utilisation du linker LLVM
+    rsp << "-fuse-ld=lld\r\n";
+    // Library dirs
+    for (const auto& libDir : config.libraryDirs) {
+        fs::path absLib = fs::absolute(fs::path(libDir));
+        rsp << "-L" << '"' << absLib.generic_string() << '"' << "\r\n";
+    }
+    // Libraries
+    for (const auto& lib : config.libraries) {
+        if (lib == "mingw32") continue; // Ne pas linker mingw32.lib
+        rsp << "-l" << lib << "\r\n";
+    }
+    // Type d'application
+    if (!config.isConsoleApp) {
+        rsp << "-mwindows\r\n";
+    } else {
+        rsp << "-mconsole\r\n";
+    }
+    // Linking statique
+    if (config.staticLink) {
+        rsp << "-static\r\n";
+    }
+    rsp.close();
+    std::string command = '"' + fs::absolute(fs::path(m_compilerPath)).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
+    bool result = executeCommand(command);
+    std::remove(rspFile.c_str());
+    return result;
 }
 
 std::string Builder::buildCompileCommand(const std::string& sourceFile,
@@ -325,12 +404,17 @@ std::string Builder::buildCompileCommand(const std::string& sourceFile,
     std::ostringstream cmd;
     
     if (m_compilerType == CompilerType::GCC || m_compilerType == CompilerType::CLANG) {
-        cmd << "g++ -c \"" << sourceFile << "\" -o \"" << objectFile << "\"";
+        // Utiliser des chemins normalisés pour la ligne de commande
+        fs::path srcPath(sourceFile);
+        fs::path objPath(objectFile);
+        cmd << "\"" << m_compilerPath << "\" -c \"" 
+            << srcPath.generic_string() << "\" -o \"" << objPath.generic_string() << "\"";
         cmd << " -std=" << config.cppStandard;
         
         // Includes
         for (const auto& inc : config.includeDirs) {
-            cmd << " -I\"" << inc << "\"";
+            fs::path incPath(inc);
+            cmd << " -I\"" << incPath.generic_string() << "\"";
         }
         
         // Defines
@@ -376,18 +460,18 @@ std::string Builder::buildLinkCommand(const std::vector<std::string>& objectFile
     std::ostringstream cmd;
     
     if (m_compilerType == CompilerType::GCC || m_compilerType == CompilerType::CLANG) {
-        cmd << "g++";
-        
+        cmd << "\"" << m_compilerPath << "\"";
         // Fichiers objets
         for (const auto& obj : objectFiles) {
-            cmd << " \"" << obj << "\"";
+            fs::path objPath(obj);
+            cmd << " \"" << objPath.generic_string() << "\"";
         }
-        
-        cmd << " -o \"" << outputFile << "\"";
-        
+        fs::path outPath(outputFile);
+        cmd << " -o \"" << outPath.generic_string() << "\"";
         // Library dirs
         for (const auto& libDir : config.libraryDirs) {
-            cmd << " -L\"" << libDir << "\"";
+            fs::path libPath(libDir);
+            cmd << " -L\"" << libPath.generic_string() << "\"";
         }
         
         // Libraries
@@ -461,10 +545,8 @@ long long Builder::getFileTimestamp(const std::string& filePath) {
 }
 
 bool Builder::executeCommand(const std::string& command) {
-    if (m_verbose) {
-        log("CMD: " + command);
-    }
-    
+    // Affiche toujours la commande pour le linkage (et temporairement pour tout)
+    std::cout << "[CMD] " << command << std::endl;
     int result = system(command.c_str());
     return result == 0;
 }

@@ -1,0 +1,19 @@
+{
+    "name": "FreeGLUT",
+    "outputDir": "Dependencies/freeglut/lib",
+    "objectDir": "Dependencies/freeglut/obj",
+    "outputName": "freeglut_static",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": false,
+    "staticLink": true,
+    "sourceFiles": [
+        "Dependencies/freeglut/src/*"
+    ],
+    "includeDirs": [
+        "Dependencies/freeglut/include/include"
+    ],
+    "libraryDirs": [],
+    "libraries": [],
+    "defines": ["FREEGLUT_STATIC"]
+}

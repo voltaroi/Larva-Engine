@@ -150,10 +150,10 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo set ROOT=%%~dp0\..\..
 >>"%PROJ_DIR%\build_client.bat" echo pushd "%%ROOT%%"
 >>"%PROJ_DIR%\build_client.bat" echo title Build %PROJ% Client
->>"%PROJ_DIR%\build_client.bat" echo echo === Build du client %PROJ% ===
+>>"%PROJ_DIR%\build_client.bat" echo echo === Client build %PROJ% ===
 >>"%PROJ_DIR%\build_client.bat" echo echo.
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "Release\Builder\larva-builder.exe" (
->>"%PROJ_DIR%\build_client.bat" echo ^    echo Le Builder n'est pas compile. Lancement du bootstrap...
+>>"%PROJ_DIR%\build_client.bat" echo ^    echo The builder is not compiling. Launching bootstrap...
 >>"%PROJ_DIR%\build_client.bat" echo ^    call bootstrap_builder.bat
 >>"%PROJ_DIR%\build_client.bat" echo ^    if %%errorlevel%% neq 0 (
 >>"%PROJ_DIR%\build_client.bat" echo ^        popd
@@ -165,7 +165,7 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo if %%errorlevel%% neq 0 (
 >>"%PROJ_DIR%\build_client.bat" echo ^    color 0C
 >>"%PROJ_DIR%\build_client.bat" echo ^    echo.
->>"%PROJ_DIR%\build_client.bat" echo ^    echo Echec du build client %PROJ%
+>>"%PROJ_DIR%\build_client.bat" echo ^    echo Client build failed %PROJ%
 >>"%PROJ_DIR%\build_client.bat" echo ^    color 07
 >>"%PROJ_DIR%\build_client.bat" echo ^    pause
 >>"%PROJ_DIR%\build_client.bat" echo ^    popd
@@ -175,7 +175,7 @@ rem Build scripts
 
 >>"%PROJ_DIR%\build_client.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
 >>"%PROJ_DIR%\build_client.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
->>"%PROJ_DIR%\build_client.bat" echo rem Compilation du client
+>>"%PROJ_DIR%\build_client.bat" echo rem Client compilation
 >>"%PROJ_DIR%\build_client.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\client\src\main.cpp -o projects\%PROJ%\Release\Client\client.exe
 >>"%PROJ_DIR%\build_client.bat" echo set OUT=projects\%PROJ%\Release\Client
 >>"%PROJ_DIR%\build_client.bat" echo set ASSETS_TEMP=projects\%PROJ%\Assets
@@ -187,7 +187,7 @@ rem Build scripts
 
 >>"%PROJ_DIR%\build_client.bat" echo echo.
 >>"%PROJ_DIR%\build_client.bat" echo color 0A
->>"%PROJ_DIR%\build_client.bat" echo echo === Build client %PROJ% termine ! ===
+>>"%PROJ_DIR%\build_client.bat" echo echo === Client build %PROJ% complete ! ===
 >>"%PROJ_DIR%\build_client.bat" echo color 07
 >>"%PROJ_DIR%\build_client.bat" echo echo.
 >>"%PROJ_DIR%\build_client.bat" echo pause
@@ -199,10 +199,10 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo set ROOT=%%~dp0\..\..
 >>"%PROJ_DIR%\build_server.bat" echo pushd "%%ROOT%%"
 >>"%PROJ_DIR%\build_server.bat" echo title Build %PROJ% Server
->>"%PROJ_DIR%\build_server.bat" echo echo === Build du server %PROJ% ===
+>>"%PROJ_DIR%\build_server.bat" echo echo === Server build %PROJ% ===
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo if not exist "Release\Builder\larva-builder.exe" (
->>"%PROJ_DIR%\build_server.bat" echo ^    echo Le Builder n'est pas compile. Lancement du bootstrap...
+>>"%PROJ_DIR%\build_server.bat" echo ^    echo The builder is not compiling. Launching bootstrap...
 >>"%PROJ_DIR%\build_server.bat" echo ^    call bootstrap_builder.bat
 >>"%PROJ_DIR%\build_server.bat" echo ^    if %%errorlevel%% neq 0 (
 >>"%PROJ_DIR%\build_server.bat" echo ^        popd
@@ -214,7 +214,7 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo if %%errorlevel%% neq 0 (
 >>"%PROJ_DIR%\build_server.bat" echo ^    color 0C
 >>"%PROJ_DIR%\build_server.bat" echo ^    echo.
->>"%PROJ_DIR%\build_server.bat" echo ^    echo Echec du build server %PROJ%
+>>"%PROJ_DIR%\build_server.bat" echo ^    echo Server build failed %PROJ%
 >>"%PROJ_DIR%\build_server.bat" echo ^    color 07
 >>"%PROJ_DIR%\build_server.bat" echo ^    pause
 >>"%PROJ_DIR%\build_server.bat" echo ^    popd
@@ -223,11 +223,11 @@ rem Build scripts
 
 >>"%PROJ_DIR%\build_server.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
 >>"%PROJ_DIR%\build_server.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
->>"%PROJ_DIR%\build_server.bat" echo rem Compilation du serveur
+>>"%PROJ_DIR%\build_server.bat" echo rem Server compilation
 >>"%PROJ_DIR%\build_server.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\server\src\main.cpp -o projects\%PROJ%\Release\Server\server.exe
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo color 0A
->>"%PROJ_DIR%\build_server.bat" echo echo === Build server %PROJ% termine ! ===
+>>"%PROJ_DIR%\build_server.bat" echo echo === Build server %PROJ% complete ! ===
 >>"%PROJ_DIR%\build_server.bat" echo color 07
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo pause
@@ -237,6 +237,6 @@ rem Build scripts
 rem Les scripts de build client/server utilisent le compilateur intégré Clang/LLVM
 rem Chemin attendu : Dependencies\Compiler\clang\bin\clang++.exe
 color 0A
-echo Projet "%PROJ%" cree dans projects\%PROJ%.
+echo Project "%PROJ%" created in projects\%PROJ%.
 color 07
 endlocal

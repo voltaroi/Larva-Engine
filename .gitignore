@@ -1,6 +1,6 @@
-Dependencies/Compiler/clang/*
-Dependencies/Compiler/clang/bin/*
 *.o
 *.pak
 /projects/*
 *.tar.xz
+Dependencies/**/*
+bootstrap/build-temp/*

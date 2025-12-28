@@ -1,0 +1,19 @@
+{
+    "name": "Assimp",
+    "outputDir": "Dependencies/assimp/lib",
+    "objectDir": "Dependencies/assimp/obj",
+    "outputName": "assimp",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": false,
+    "staticLink": true,
+    "sourceFiles": [
+        "Dependencies/assimp/code/*"
+    ],
+    "includeDirs": [
+        "Dependencies/assimp/include/include"
+    ],
+    "libraryDirs": [],
+    "libraries": [],
+    "defines": []
+}

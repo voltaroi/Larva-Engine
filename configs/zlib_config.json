@@ -1,0 +1,19 @@
+{
+    "name": "zlib",
+    "outputDir": "Dependencies/zlib/lib",
+    "objectDir": "Dependencies/zlib/obj",
+    "outputName": "zlibstatic",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": false,
+    "staticLink": true,
+    "sourceFiles": [
+        "Dependencies/zlib/*"
+    ],
+    "includeDirs": [
+        "Dependencies/zlib/include"
+    ],
+    "libraryDirs": [],
+    "libraries": [],
+    "defines": []
+}

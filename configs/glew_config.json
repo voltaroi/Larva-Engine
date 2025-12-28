@@ -1,0 +1,19 @@
+{
+    "name": "GLEW",
+    "outputDir": "Dependencies/glew/lib",
+    "objectDir": "Dependencies/glew/obj",
+    "outputName": "glew32",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": false,
+    "staticLink": true,
+    "sourceFiles": [
+        "Dependencies/glew/src/*"
+    ],
+    "includeDirs": [
+        "Dependencies/glew/include/include"
+    ],
+    "libraryDirs": [],
+    "libraries": [],
+    "defines": ["GLEW_STATIC"]
+}

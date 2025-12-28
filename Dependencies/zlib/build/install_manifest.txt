@@ -1,7 +1,0 @@
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/lib/libzlib.dll.a
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/bin/libzlib.dll
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/lib/libzlibstatic.a
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/include/zconf.h
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/include/zlib.h
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/share/man/man3/zlib.3
-C:/Users/Sumicro/Desktop/Larva-Engine/Dependencies/zlib/prebuilt/share/pkgconfig/zlib.pc
