@@ -93,14 +93,11 @@ void UIButton::updatePosition()
 
 void UIButton::updateSizeFromLabel()
 {
-    if (!font)
-        font = GLUT_BITMAP_HELVETICA_18;
-
-    const unsigned char *ulabel = reinterpret_cast<const unsigned char *>(label.c_str());
-    int textWidth = glutBitmapLength(font, ulabel);
-    const float textHeight = 18.0f;
-
-    float desiredWidth = static_cast<float>(textWidth) + extraWidth;
+    // Use FreeType to get exact text width
+    const float textHeight = 28.0f; // Approximate height at scale 0.6f
+    
+    float textWidth = UI::getTextWidth(label, 0.6f);
+    float desiredWidth = textWidth + extraWidth;
     float desiredHeight = textHeight + extraHeight;
 
     int currentWidth = glutGet(GLUT_WINDOW_WIDTH);
@@ -145,9 +142,14 @@ void UIButton::draw()
     else
         UI::drawBox(x, y, width, height, r + 0.1f, g + 0.1f, b + 0.1f, 1.0f, border, radius);
 
-    float textX = x + width / 2 - (glutBitmapLength(font, reinterpret_cast<const unsigned char *>(label.c_str())) / 2.0f);
-    float textY = y + height / 2 - 5;
-    UI::drawText(textX, textY, label.c_str());
+    UI::setColor(1.0f, 1.0f, 1.0f, 1.0f);
+    
+    // Get exact text width from FreeType and center it
+    float textWidth = UI::getTextWidth(label, 0.6f);
+    float textX = x + width / 2.0f - textWidth / 2.0f;
+    float textY = y + height / 2 - 8.0f;
+    
+    UI::renderText(label, textX, textY, 0.6f);
 }
 
 void UIButton::setPosition(float x, float y, float width, float height)

@@ -91,7 +91,7 @@ if not exist "%DEPS%\zlib\lib\zlibstatic.lib" (
 REM =====================================================
 REM === FREETYPE ===
 REM =====================================================
-if not exist "%DEPS%\freetype\lib\freetype.lib" (
+if not exist "%DEPS%\freetype\lib\freetype.lib" if not exist "%DEPS%\freetype\lib\freetyped.lib" (
   call :InstallFreetype
 )
 
@@ -201,8 +201,13 @@ set OBJ_DIR=freeglut-temp\freeglut-3.4.0\obj
 if exist %OBJ_DIR% rmdir /S /Q %OBJ_DIR%
 mkdir %OBJ_DIR%
 echo [DEBUG] INCLUDES: -I"%DEPS%\freeglut\include"
-for %%f in (%FREEGLUT_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\freeglut\include" -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
+for %%f in (%FREEGLUT_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\freeglut\include" -DFREEGLUT_STATIC -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
+for %%f in (%FREEGLUT_SRC%\mswin\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\freeglut\include" -DFREEGLUT_STATIC -o "%OBJ_DIR%\mswin_%%~nf.obj" || goto ERROR
 %CLANG_BIN%\llvm-lib.exe /OUT:"%DEPS%\freeglut\lib\freeglut_static.lib" %OBJ_DIR%\*.obj || goto ERROR
+
+REM === Alias debug/release names expected by linker ===
+if not exist "%DEPS%\freeglut\lib\freeglut_staticd.lib" copy /Y "%DEPS%\freeglut\lib\freeglut_static.lib" "%DEPS%\freeglut\lib\freeglut_staticd.lib" >nul
+if not exist "%DEPS%\freeglut\lib\freeglutd.lib" copy /Y "%DEPS%\freeglut\lib\freeglut_static.lib" "%DEPS%\freeglut\lib\freeglutd.lib" >nul
 
 del freeglut.zip
 rmdir /S /Q freeglut-temp
@@ -236,21 +241,45 @@ rmdir /S /Q glew-temp
 exit /b 0
 
 :InstallFreetype
-echo [INFO] Installation Freetype...
+echo [INFO] Installation Freetype (build statique)...
 rmdir /S /Q freetype-temp 2>nul
-"C:\Windows\System32\curl.exe" -L --fail -o freetype-windows-binaries-2.14.1.zip ^
-  https://github.com/ubawurinna/freetype-windows-binaries/archive/refs/tags/v2.14.1.zip || goto ERROR
+"C:\Windows\System32\curl.exe" -L --fail -o freetype-2.13.3.zip ^
+  https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.zip || goto ERROR
 
-powershell -Command "Expand-Archive freetype-windows-binaries-2.14.1.zip freetype-temp" || goto ERROR
+powershell -Command "Expand-Archive freetype-2.13.3.zip freetype-temp" || goto ERROR
+set "FT_SRC=freetype-temp\freetype-VER-2-13-3"
+set "FT_BUILD=%FT_SRC%\build"
 mkdir "%DEPS%\freetype\lib" 2>nul
 mkdir "%DEPS%\freetype\include" 2>nul
-xcopy /E /I /Y /S "freetype-temp\freetype-windows-binaries-2.14.1\include" "%DEPS%\freetype\include" >nul
 
+set "DEPS_FWD=%DEPS:\=/%"
+set "CLANG_CC=%DEPS_FWD%/Compiler/clang/bin/clang.exe"
+set "CLANG_CXX=%DEPS_FWD%/Compiler/clang/bin/clang++.exe"
+set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
 
-REM === Pas de compilation Freetype : pas de sources dans l'archive binaire ===
-echo [INFO] Archive Freetype binaire, pas de compilation.
+"%CMAKE_BIN%" -G "Ninja" ^
+  -S "%FT_SRC%" ^
+  -B "%FT_BUILD%" ^
+  -DCMAKE_C_COMPILER="%CLANG_CC%" ^
+  -DCMAKE_CXX_COMPILER="%CLANG_CXX%" ^
+  -DCMAKE_RC_COMPILER="%CLANG_RC%" ^
+  -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
+  -DBUILD_SHARED_LIBS=OFF ^
+  -DFT_DISABLE_BZIP2=ON ^
+  -DFT_DISABLE_PNG=ON ^
+  -DFT_DISABLE_HARFBUZZ=ON ^
+  -DZLIB_LIBRARY="%DEPS%/zlib/lib/zlibstatic.lib" ^
+  -DZLIB_INCLUDE_DIR="%DEPS%/zlib/include" ^
+  -DCMAKE_INSTALL_PREFIX="%DEPS%/freetype" || goto ERROR
 
-del freetype-windows-binaries-2.14.1.zip
+"%CMAKE_BIN%" --build "%FT_BUILD%" --config Release || goto ERROR
+"%CMAKE_BIN%" --install "%FT_BUILD%" --config Release || goto ERROR
+
+REM === Normaliser les noms de libs freetype ===
+if exist "%DEPS%\freetype\lib\freetyped.lib" if not exist "%DEPS%\freetype\lib\freetype.lib" copy /Y "%DEPS%\freetype\lib\freetyped.lib" "%DEPS%\freetype\lib\freetype.lib" >nul
+if not exist "%DEPS%\freetype\lib\freetype.lib" goto ERROR
+
+del freetype-2.13.3.zip
 rmdir /S /Q freetype-temp
 exit /b 0
 
@@ -344,6 +373,9 @@ xcopy /E /I /Y /S "assimp-temp\assimp-5.3.0\code" "%DEPS%\assimp\include\code" >
 REM === Génération de config.h à partir de config.h.in (suppression des #cmakedefine) ===
 if exist "%DEPS%\assimp\include\assimp\config.h" del "%DEPS%\assimp\include\assimp\config.h"
 findstr /V "#cmakedefine" "assimp-temp\assimp-5.3.0\include\assimp\config.h.in" > "%DEPS%\assimp\include\assimp\config.h"
+echo #define ASSIMP_BUILD_NO_C4D_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
+echo #define ASSIMP_BUILD_NO_IFC_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
+echo #define ASSIMP_BUILD_NO_OPENGEX_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
 
 REM === Génération automatique de revision.h minimal si absent ===
 if not exist assimp-temp\assimp-5.3.0\include\assimp\revision.h (
@@ -372,10 +404,16 @@ if exist %OBJ_DIR% rmdir /S /Q %OBJ_DIR%
 mkdir %OBJ_DIR%
 echo [INFO] Compilation récursive des sources Assimp...
 for /R %ASSIMP_SRC% %%f in (*.cpp) do (
-  echo "%%f" | findstr /I /C:"AssetLib\\C4D\\C4DImporter.cpp" >nul
+  echo "%%f" | findstr /I /C:"AssetLib\\C4D" >nul
+  if errorlevel 1 echo "%%f" | findstr /I /C:"AssetLib\\OpenGEX" >nul
+  if errorlevel 1 echo "%%f" | findstr /I /C:"AssetLib\\IFC" >nul
   if errorlevel 1 findstr /C:"#include \"AssimpPCH.h\"" "%%f" >nul
-  if errorlevel 1 %CLANG_BIN%\clang++.exe -c "%%f" -I"%DEPS%\assimp\include" -I"assimp-temp\assimp-5.3.0\include\assimp" -I"assimp-temp\assimp-5.3.0\code" -I"assimp-temp\assimp-5.3.0\code\Common" -I"assimp-temp\assimp-5.3.0\contrib\pugixml\src" -I"%DEPS%\zlib\include" -I"assimp-temp\assimp-5.3.0\contrib\rapidjson\include" -I"assimp-temp\assimp-5.3.0\contrib\unzip" -I"assimp-temp\assimp-5.3.0\contrib" -I"assimp-temp\assimp-5.3.0\contrib\openddlparser\include" -DASSIMP_BUILD_NO_EXPORT -DASSIMP_BUILD_NO_OWN_ZLIB -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
+  if errorlevel 1 %CLANG_BIN%\clang++.exe -c "%%f" -I"%DEPS%\assimp\include" -I"assimp-temp\assimp-5.3.0\include\assimp" -I"assimp-temp\assimp-5.3.0\code" -I"assimp-temp\assimp-5.3.0\code\Common" -I"assimp-temp\assimp-5.3.0\contrib\pugixml\src" -I"%DEPS%\zlib\include" -I"assimp-temp\assimp-5.3.0\contrib\rapidjson\include" -I"assimp-temp\assimp-5.3.0\contrib\unzip" -I"assimp-temp\assimp-5.3.0\contrib" -I"assimp-temp\assimp-5.3.0\contrib\openddlparser\include" -DASSIMP_BUILD_NO_EXPORT -DASSIMP_BUILD_NO_OWN_ZLIB -DASSIMP_BUILD_NO_C4D_IMPORTER=1 -DASSIMP_BUILD_NO_IFC_IMPORTER=1 -DASSIMP_BUILD_NO_OPENGEX_IMPORTER=1 -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
 )
+
+REM === Compilation des sources unzip nécessaires ===
+set UNZIP_SRC=assimp-temp\assimp-5.3.0\contrib\unzip
+for %%f in (%UNZIP_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\zlib\include" -I"%UNZIP_SRC%" -o "%OBJ_DIR%\unzip_%%~nf.obj" || goto ERROR
 
 %CLANG_BIN%\llvm-lib.exe /OUT:"%DEPS%\assimp\lib\assimp.lib" %OBJ_DIR%\*.obj || goto ERROR
 

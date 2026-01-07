@@ -1,7 +1,6 @@
 #include "UI.h"
 #include "ResourcePak.h"
 
-#define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
 #define M_PI 3.14159265358979323846
@@ -29,15 +28,20 @@ void UI::loadfont(const char *fontPath)
 
     FT_Face face;
     
-    // Try to load from PAK first
+    // Check if path is absolute (contains : or starts with / or \)
+    std::string path(fontPath);
+    bool isAbsolutePath = (path.find(':') != std::string::npos) || 
+                          (path[0] == '/' || path[0] == '\\');
+    
+    // Try to load from PAK first (only for relative paths)
     std::vector<unsigned char> fontData;
-    if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(fontPath, fontData)) {
+    if (!isAbsolutePath && ResourcePak::IsInitialized() && ResourcePak::LoadFile(fontPath, fontData)) {
         // Load from memory using FreeType
         if (FT_New_Memory_Face(ft, fontData.data(), fontData.size(), 0, &face)) {
             throw std::runtime_error("Unable to load font from PAK");
         }
     } else {
-        // Fallback to disk loading
+        // Load directly from disk
         if (FT_New_Face(ft, fontPath, 0, &face)) {
             throw std::runtime_error("Unable to load font");
         }
@@ -126,6 +130,20 @@ void UI::renderText(std::string text, float x, float y, float scale)
 
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_BLEND);
+}
+
+float UI::getTextWidth(std::string text, float scale)
+{
+    float width = 0.0f;
+    for (unsigned char c : text)
+    {
+        if (UICharactersData.find(c) != UICharactersData.end())
+        {
+            UICharacter ch = UICharactersData[c];
+            width += (ch.advance >> 6) * scale;
+        }
+    }
+    return width;
 }
 
 void UI::drawText(float x, float y, const char *text, void *font)
