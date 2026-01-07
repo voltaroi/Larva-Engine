@@ -189,6 +189,10 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo color 0A
 >>"%PROJ_DIR%\build_client.bat" echo echo === Client build %PROJ% complete ! ===
 >>"%PROJ_DIR%\build_client.bat" echo color 07
+>>"%PROJ_DIR%\build_client.bat" echo.
+>>"%PROJ_DIR%\build_client.bat" echo echo Copying runtime DLLs...
+>>"%PROJ_DIR%\build_client.bat" echo copy /Y "%%ROOT%%\Dependencies\OpenAL\bin\soft_oal.dll" "projects\%PROJ%\Release\Client\OpenAL32.dll" ^>nul
+>>"%PROJ_DIR%\build_client.bat" echo echo DLLs copied successfully
 >>"%PROJ_DIR%\build_client.bat" echo echo.
 >>"%PROJ_DIR%\build_client.bat" echo pause
 >>"%PROJ_DIR%\build_client.bat" echo popd
