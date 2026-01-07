@@ -14,6 +14,11 @@ cd /d "%ROOT%"
 
 REM === DOSSIERS ===
 set DEPS=%ROOT%Dependencies
+set CMAKE_DIR=%DEPS%\Compiler\cmake
+set CMAKE_BIN=%CMAKE_DIR%\bin\cmake.exe
+set NINJA_DIR=%DEPS%\Compiler\ninja
+set NINJA_EXE=%NINJA_DIR%\ninja.exe
+set OPENAL_DIR=%DEPS%\OpenAL
 mkdir "%DEPS%" 2>nul
 mkdir "%DEPS%\Compiler\clang" 2>nul
 mkdir Release\Builder 2>nul
@@ -34,6 +39,24 @@ if not exist "%DEPS%\Compiler\clang\bin\clang++.exe" (
     del clang.tar.xz
 ) else (
     echo [INFO] Clang déjà installé, utilisation existante.
+)
+
+REM =====================================================
+REM === CMAKE ===
+REM =====================================================
+if not exist "%CMAKE_BIN%" (
+  call :InstallCMake
+) else (
+  echo [INFO] CMake déjà installé, utilisation existante.
+)
+
+REM =====================================================
+REM === NINJA (GENERATEUR CMAKE) ===
+REM =====================================================
+if not exist "%NINJA_EXE%" (
+  call :InstallNinja
+) else (
+  echo [INFO] Ninja déjà installé, utilisation existante.
 )
 
 REM =====================================================
@@ -81,7 +104,7 @@ if not exist "%DEPS%\assimp\lib\assimp.lib" (
 REM =====================================================
 REM === OpenAL ===
 REM =====================================================
-if not exist "%DEPS%\openal\lib\openal.lib" (
+if not exist "%OPENAL_DIR%\lib\OpenAL32.lib" (
   call :InstallOpenAL
 )
 
@@ -117,6 +140,34 @@ exit /b 1
 REM =====================================================
 REM === FONCTIONS ===
 REM =====================================================
+
+:InstallCMake
+echo [INFO] Installation de CMake...
+rmdir /S /Q cmake-temp 2>nul
+"C:\Windows\System32\curl.exe" -L --fail -o cmake.zip ^
+  https://github.com/Kitware/CMake/releases/download/v3.30.5/cmake-3.30.5-windows-x86_64.zip || goto ERROR
+
+powershell -Command "Expand-Archive cmake.zip cmake-temp" || goto ERROR
+mkdir "%CMAKE_DIR%" 2>nul
+for /d %%D in (cmake-temp\cmake-*-windows-x86_64) do xcopy /E /I /Y "%%D\*" "%CMAKE_DIR%\" >nul || goto ERROR
+
+del cmake.zip
+rmdir /S /Q cmake-temp
+exit /b 0
+
+:InstallNinja
+echo [INFO] Installation de Ninja...
+rmdir /S /Q ninja-temp 2>nul
+"C:\Windows\System32\curl.exe" -L --fail -o ninja.zip ^
+  https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip || goto ERROR
+
+powershell -Command "Expand-Archive ninja.zip ninja-temp" || goto ERROR
+mkdir "%NINJA_DIR%" 2>nul
+copy /Y "ninja-temp\ninja.exe" "%NINJA_EXE%" >nul || goto ERROR
+
+del ninja.zip
+rmdir /S /Q ninja-temp
+exit /b 0
 
 :InstallFreeGLUT
 echo [INFO] Installation FreeGLUT...
@@ -230,52 +281,38 @@ rmdir /S /Q libsndfile-temp 2>nul
 powershell -Command "Expand-Archive libsndfile-1.2.2.zip libsndfile-temp" || goto ERROR
 mkdir "%DEPS%\libsndfile\lib" 2>nul
 mkdir "%DEPS%\libsndfile\include" 2>nul
-xcopy /E /I /Y /S "libsndfile-temp\libsndfile-1.2.2\*.h*" "%DEPS%\libsndfile\include"
+xcopy /E /I /Y /S "libsndfile-temp\libsndfile-1.2.2\include\*.h*" "%DEPS%\libsndfile\include"
 
+set "BUILD_DIR=libsndfile-temp\libsndfile-1.2.2\build"
+set "DEPS_FWD=%DEPS:\=/%"
+set "CLANG_CC=%DEPS_FWD%/Compiler/clang/bin/clang.exe"
+set "CLANG_CXX=%DEPS_FWD%/Compiler/clang/bin/clang++.exe"
+set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
 
-REM === Génération d'un config.h minimal pour libsndfile ===
-if not exist "libsndfile-temp\libsndfile-1.2.2\src\config.h" (
-  echo /* config.h minimal pour build statique */ > "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define HAVE_STDINT_H 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define HAVE_SYS_TYPES_H 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define PACKAGE_NAME "libsndfile" >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define PACKAGE_VERSION "1.2.2" >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define OS_IS_WIN32 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #include ^<io.h^> >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #ifndef access >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define access _access >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #ifndef R_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define R_OK 4 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #ifndef W_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define W_OK 2 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #ifndef X_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define X_OK 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #ifndef F_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #define F_OK 0 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
-  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+"%CMAKE_BIN%" -G "Ninja" ^
+  -S "libsndfile-temp\libsndfile-1.2.2" ^
+  -B "%BUILD_DIR%" ^
+  -DCMAKE_C_COMPILER="%CLANG_CC%" ^
+  -DCMAKE_CXX_COMPILER="%CLANG_CXX%" ^
+  -DCMAKE_RC_COMPILER="%CLANG_RC%" ^
+  -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
+  -DBUILD_SHARED_LIBS=OFF ^
+  -DBUILD_PROGRAMS=OFF ^
+  -DBUILD_EXAMPLES=OFF ^
+  -DBUILD_TESTING=OFF ^
+  -DINSTALL_PKGCONFIG_MODULE=OFF ^
+  -DINSTALL_CMAKE_CONFIG_MODULE=OFF ^
+  -DENABLE_EXTERNAL_LIBS=OFF || goto ERROR
+
+"%CMAKE_BIN%" --build "%BUILD_DIR%" --config Release || goto ERROR
+
+set "FOUND_LIB="
+for %%L in ("%BUILD_DIR%\src\libsndfile.lib" "%BUILD_DIR%\lib\Release\libsndfile.lib" "%BUILD_DIR%\Release\libsndfile.lib" "%BUILD_DIR%\lib\libsndfile.lib" "%BUILD_DIR%\sndfile.lib") do (
+  if exist "%%~fL" set "FOUND_LIB=%%~fL"
 )
 
-REM === Génération d'un sfconfig.h minimal pour Windows (little-endian) ===
-echo /* sfconfig.h minimal pour Windows little-endian - auto-generated */ > "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #ifndef SFCONFIG_USER >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #define SFCONFIG_USER >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #define CPU_IS_LITTLE_ENDIAN 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #define CPU_IS_BIG_ENDIAN 0 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo /* Assume x86/x86_64 host on Windows */ >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #define CPU_IS_X86 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #define CPU_IS_X86_64 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-echo #endif /* SFCONFIG_USER */ >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-set CLANG_BIN="%DEPS%\Compiler\clang\bin"
-set SNDFILE_SRC=libsndfile-temp\libsndfile-1.2.2\src
-set OBJ_DIR=libsndfile-temp\libsndfile-1.2.2\obj
-if exist %OBJ_DIR% rmdir /S /Q %OBJ_DIR%
-mkdir %OBJ_DIR%
-for %%f in (%SNDFILE_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\libsndfile\include" -I"libsndfile-temp\libsndfile-1.2.2\src" -I"libsndfile-temp\libsndfile-1.2.2\include" -DPACKAGE_NAME=\"libsndfile\" -DPACKAGE_VERSION=\"1.2.2\" -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
-%CLANG_BIN%\llvm-lib.exe /OUT:"%DEPS%\libsndfile\lib\sndfile.lib" %OBJ_DIR%\*.obj || goto ERROR
+if not defined FOUND_LIB goto ERROR
+copy /Y "!FOUND_LIB!" "%DEPS%\libsndfile\lib\sndfile.lib" >nul || goto ERROR
 
 del libsndfile-1.2.2.zip
 rmdir /S /Q libsndfile-temp
@@ -346,10 +383,20 @@ rmdir /S /Q OpenAL-temp 2>nul
  https://openal-soft.org/openal-binaries/openal-soft-1.25.0-bin.zip || goto ERROR
 
 powershell -Command "Expand-Archive openal-soft-1.25.0-bin.zip OpenAL-temp" || goto ERROR
-mkdir "%DEPS%\OpenAL\lib" 2>nul
-mkdir "%DEPS%\OpenAL\include" 2>nul
+mkdir "%OPENAL_DIR%\lib" 2>nul
+mkdir "%OPENAL_DIR%\include" 2>nul
+mkdir "%OPENAL_DIR%\bin" 2>nul
 
-xcopy /E /I /Y /S "OpenAL-temp\openal-soft-1.25.0-bin\include\*" "%DEPS%\OpenAL\include"
+xcopy /E /I /Y /S "OpenAL-temp\openal-soft-1.25.0-bin\include\*" "%OPENAL_DIR%\include" >nul
+
+set "OPENAL_LIB_SRC="
+for %%L in ("OpenAL-temp\openal-soft-1.25.0-bin\libs\Win64\OpenAL32.lib" "OpenAL-temp\openal-soft-1.25.0-bin\libs\OpenAL32.lib" "OpenAL-temp\openal-soft-1.25.0-bin\lib\Win64\OpenAL32.lib" "OpenAL-temp\openal-soft-1.25.0-bin\lib\OpenAL32.lib") do (
+  if exist "%%~fL" set "OPENAL_LIB_SRC=%%~fL"
+)
+if not defined OPENAL_LIB_SRC goto ERROR
+copy /Y "%OPENAL_LIB_SRC%" "%OPENAL_DIR%\lib\OpenAL32.lib" >nul || goto ERROR
+
+if exist "OpenAL-temp\openal-soft-1.25.0-bin\bin\Win64" xcopy /Y /I "OpenAL-temp\openal-soft-1.25.0-bin\bin\Win64\*.dll" "%OPENAL_DIR%\bin\" >nul
 
 del openal-soft-1.25.0-bin.zip
 rmdir /S /Q OpenAL-temp
