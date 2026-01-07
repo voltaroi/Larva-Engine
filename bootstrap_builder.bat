@@ -19,6 +19,7 @@ set CMAKE_BIN=%CMAKE_DIR%\bin\cmake.exe
 set NINJA_DIR=%DEPS%\Compiler\ninja
 set NINJA_EXE=%NINJA_DIR%\ninja.exe
 set OPENAL_DIR=%DEPS%\OpenAL
+set GLM_DIR=%DEPS%\glm
 mkdir "%DEPS%" 2>nul
 mkdir "%DEPS%\Compiler\clang" 2>nul
 mkdir Release\Builder 2>nul
@@ -71,6 +72,13 @@ REM === GLEW ===
 REM =====================================================
 if not exist "%DEPS%\glew\lib\glew32.lib" (
     call :InstallGLEW
+)
+
+REM =====================================================
+REM === GLM (HEADER-ONLY) ===
+REM =====================================================
+if not exist "%GLM_DIR%\include\glm\glm.hpp" (
+  call :InstallGLM
 )
 
 REM =====================================================
@@ -400,4 +408,18 @@ if exist "OpenAL-temp\openal-soft-1.25.0-bin\bin\Win64" xcopy /Y /I "OpenAL-temp
 
 del openal-soft-1.25.0-bin.zip
 rmdir /S /Q OpenAL-temp
+exit /b 0
+
+:InstallGLM
+echo [INFO] Installation GLM...
+rmdir /S /Q glm-temp 2>nul
+"C:\Windows\System32\curl.exe" -L --fail -o glm-0.9.9.8.zip ^
+  https://github.com/g-truc/glm/archive/refs/tags/0.9.9.8.zip || goto ERROR
+
+powershell -Command "Expand-Archive glm-0.9.9.8.zip glm-temp" || goto ERROR
+mkdir "%GLM_DIR%\include" 2>nul
+xcopy /E /I /Y /S "glm-temp\glm-0.9.9.8\glm" "%GLM_DIR%\include\glm" >nul
+
+del glm-0.9.9.8.zip
+rmdir /S /Q glm-temp
 exit /b 0
