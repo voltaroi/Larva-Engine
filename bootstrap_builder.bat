@@ -27,8 +27,10 @@ if not exist "%DEPS%\Compiler\clang\bin\clang++.exe" (
         https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz || goto ERROR
 
     tar -xf clang.tar.xz || goto ERROR
-    xcopy /E /I /Y clang+llvm-* "%DEPS%\Compiler\clang" >nul
-    rmdir /S /Q clang+llvm-* 
+    for /d %%D in (clang+llvm-*) do (
+      xcopy /E /I /Y "%%D\*" "%DEPS%\Compiler\clang\" >nul || goto ERROR
+      rmdir /S /Q "%%D"
+    )
     del clang.tar.xz
 ) else (
     echo [INFO] Clang déjà installé, utilisation existante.
@@ -65,9 +67,9 @@ if not exist "%DEPS%\freetype\lib\freetype.lib" (
 REM =====================================================
 REM === LIBSNDFILE ===
 REM =====================================================
-@REM if not exist "%DEPS%\libsndfile\lib\sndfile.lib" (
-@REM   call :InstallLibsndfile
-@REM )
+if not exist "%DEPS%\libsndfile\lib\sndfile.lib" (
+  call :InstallLibsndfile
+)
 
 REM =====================================================
 REM === ASSIMP ===
@@ -236,21 +238,43 @@ if not exist "libsndfile-temp\libsndfile-1.2.2\src\config.h" (
   echo /* config.h minimal pour build statique */ > "libsndfile-temp\libsndfile-1.2.2\src\config.h"
   echo #define HAVE_STDINT_H 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
   echo #define HAVE_SYS_TYPES_H 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define PACKAGE_NAME "libsndfile" >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
   echo #define PACKAGE_VERSION "1.2.2" >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define OS_IS_WIN32 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #include ^<io.h^> >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #ifndef access >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define access _access >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #ifndef R_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define R_OK 4 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #ifndef W_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define W_OK 2 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #ifndef X_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define X_OK 1 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #ifndef F_OK >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #define F_OK 0 >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
+  echo #endif >> "libsndfile-temp\libsndfile-1.2.2\src\config.h"
 )
 
 REM === Génération d'un sfconfig.h minimal pour Windows (little-endian) ===
-if not exist "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h" (
-  echo /* sfconfig.h minimal pour Windows little-endian */ > "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-  echo #define CPU_IS_LITTLE_ENDIAN 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-  echo #define CPU_IS_BIG_ENDIAN 0 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
-)
+echo /* sfconfig.h minimal pour Windows little-endian - auto-generated */ > "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #ifndef SFCONFIG_USER >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #define SFCONFIG_USER >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #define CPU_IS_LITTLE_ENDIAN 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #define CPU_IS_BIG_ENDIAN 0 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo /* Assume x86/x86_64 host on Windows */ >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #define CPU_IS_X86 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #define CPU_IS_X86_64 1 >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
+echo #endif /* SFCONFIG_USER */ >> "libsndfile-temp\libsndfile-1.2.2\src\sfconfig.h"
 set CLANG_BIN="%DEPS%\Compiler\clang\bin"
 set SNDFILE_SRC=libsndfile-temp\libsndfile-1.2.2\src
 set OBJ_DIR=libsndfile-temp\libsndfile-1.2.2\obj
 if exist %OBJ_DIR% rmdir /S /Q %OBJ_DIR%
 mkdir %OBJ_DIR%
-for %%f in (%SNDFILE_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\libsndfile\include" -I"libsndfile-temp\libsndfile-1.2.2\src" -I"libsndfile-temp\libsndfile-1.2.2\include" -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
+for %%f in (%SNDFILE_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\libsndfile\include" -I"libsndfile-temp\libsndfile-1.2.2\src" -I"libsndfile-temp\libsndfile-1.2.2\include" -DPACKAGE_NAME=\"libsndfile\" -DPACKAGE_VERSION=\"1.2.2\" -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
 %CLANG_BIN%\llvm-lib.exe /OUT:"%DEPS%\libsndfile\lib\sndfile.lib" %OBJ_DIR%\*.obj || goto ERROR
 
 del libsndfile-1.2.2.zip

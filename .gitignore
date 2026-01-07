@@ -3,4 +3,3 @@
 /projects/*
 *.tar.xz
 Dependencies/**/*
-bootstrap/build-temp/*
