@@ -31,11 +31,6 @@ static void init()
     glClearColor(0.0, 0.0, 0.0, 1.0);
     glEnable(GL_DEPTH_TEST);
 
-    // glEnable(GL_LIGHTING);
-    // glEnable(GL_LIGHT0);
-    // GLfloat light_position[] = { 1.0f, 1.0f, 1.0f, 0.0f };
-    // glLightfv(GL_LIGHT0, GL_POSITION, light_position);
-
     glutSetCursor(GLUT_CURSOR_NONE);
 
     game.init(screenWidth, screenHeight, windowUtils);

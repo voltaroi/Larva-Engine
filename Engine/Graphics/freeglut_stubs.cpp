@@ -1,4 +1,3 @@
-// Stubs pour les fonctions spaceball de FreeGLUT non implémentées sur Windows
 extern "C" {
     // Stub pour XParseGeometry
     int XParseGeometry(const char* /*parsestring*/, int* /*x*/, int* /*y*/, 
@@ -6,7 +5,6 @@ extern "C" {
         return 0;
     }
     
-    // Stubs pour spaceball (périphérique 3D non utilisé)
     void fgSpaceballHandleWinEvent(void* /*msg*/) {}
     
     void fgPlatformInitializeSpaceball(void) {}
@@ -14,7 +12,7 @@ extern "C" {
     void fgPlatformSpaceballClose(void) {}
     
     int fgPlatformHasSpaceball(void) {
-        return 0; // Pas de spaceball
+        return 0;
     }
     
     int fgPlatformSpaceballNumButtons(void) {

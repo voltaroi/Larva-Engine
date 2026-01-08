@@ -124,12 +124,10 @@ void ScrollBox::update(float mouseX, float mouseY, bool mousePressed)
 {
     updateItemPositions();
 
-    // Manual hit-testing and click handling for buttons in the scrollbox
     for (auto &item : items)
     {
         if (item.type == Item::BUTTON && item.button)
         {
-            // Check if button is within visible area
             float btnY = item.offsetY - item.button->height;
             float btnX = x + 10.0f;
             float btnW = item.button->width;
@@ -139,13 +137,11 @@ void ScrollBox::update(float mouseX, float mouseY, bool mousePressed)
             if (!visible)
                 continue;
 
-            // Hover detection within scrollbox bounds
             bool insideScroll = isMouseInside(mouseX, mouseY);
             bool hovered = insideScroll && (mouseX >= btnX && mouseX <= btnX + btnW &&
                                             mouseY >= btnY && mouseY <= btnY + btnH);
             item.button->hovered = hovered;
 
-            // Click detection on press edge
             if (hovered && mousePressed && !prevMousePressed && item.button->onClick)
             {
                 item.button->onClick();
@@ -158,7 +154,6 @@ void ScrollBox::update(float mouseX, float mouseY, bool mousePressed)
 
 void ScrollBox::beginClip()
 {
-    // Convert coordinates to window coordinates
     GLint viewport[4];
     glGetIntegerv(GL_VIEWPORT, viewport);
 
@@ -167,7 +162,6 @@ void ScrollBox::beginClip()
     int vpW = viewport[2];
     int vpH = viewport[3];
 
-    // If viewport is invalid (e.g., minimized), skip clipping and ensure scissor is disabled
     if (vpW <= 0 || vpH <= 0)
     {
         glDisable(GL_SCISSOR_TEST);
@@ -179,7 +173,6 @@ void ScrollBox::beginClip()
     int scissorWidth = static_cast<int>(width);
     int scissorHeight = static_cast<int>(height);
 
-    // Clamp values to viewport
     scissorX = std::max(vpX, std::min(scissorX, vpX + vpW));
     scissorY = std::max(vpY, std::min(scissorY, vpY + vpH));
     int maxW = (vpX + vpW) - scissorX;
@@ -205,20 +198,16 @@ void ScrollBox::endClip()
 
 void ScrollBox::draw()
 {
-    // Draw background box
     UI::drawBox(x, y, width, height, r, g, b, alpha, false, 0.0f);
 
-    // Enable clipping
     beginClip();
 
-    // Draw items
     updateItemPositions();
 
     for (auto &item : items)
     {
         if (item.type == Item::TEXT)
         {
-            // Check if text is within visible area
             if (item.offsetY >= y && item.offsetY <= y + height)
             {
                 UI::drawText(x + 10.0f, item.offsetY - 15.0f, item.text.c_str());
@@ -226,7 +215,6 @@ void ScrollBox::draw()
         }
         else if (item.type == Item::BUTTON && item.button)
         {
-            // Check if button is within visible area
             float btnY = item.offsetY - item.button->height;
             if (btnY + item.button->height >= y && btnY <= y + height)
             {
@@ -234,21 +222,11 @@ void ScrollBox::draw()
                 float btnWidth = item.button->width;
                 float btnHeight = item.button->height;
 
-                // Manually draw button
-                // if (item.button->hovered)
-                //     UI::drawBox(btnX, btnY, btnWidth, btnHeight, item.button->r, item.button->g, item.button->b, 1.0f, false, 5.0f);
-                // else
-                //     UI::drawBox(btnX, btnY, btnWidth, btnHeight, item.button->r + 0.1f, item.button->g + 0.1f, item.button->b + 0.1f, 1.0f, false, 5.0f);
-
-                // float textX = btnX + btnWidth / 2 - (glutBitmapLength(GLUT_BITMAP_HELVETICA_18, reinterpret_cast<const unsigned char*>(item.button->label.c_str())) / 2.0f);
-                // float textY = btnY + btnHeight / 2 - 5;
-                // UI::drawText(textX, textY, item.button->label.c_str());
                 item.button->draw();
             }
         }
     }
 
-    // Disable clipping
     endClip();
 
     // Draw scrollbar

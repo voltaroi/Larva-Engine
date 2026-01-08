@@ -37,7 +37,6 @@ static bool loadTextFile(const std::string &path, std::string &out)
         return true;
     }
 
-    // Fallback: look relative to current working directory only
     std::ifstream f(path, std::ios::binary);
     if (f.is_open()) {
         f.seekg(0, std::ios::end);
@@ -231,11 +230,9 @@ bool Model::loadFromFile(const std::string &path)
     
     // Try to load from PAK first
     if (ResourcePak::IsInitialized() && ResourcePak::LoadFile(path, modelData)) {
-        // Get file extension from original path
         size_t dotPos = path.find_last_of('.');
         std::string extension = (dotPos != std::string::npos) ? path.substr(dotPos) : ".tmp";
         
-        // Create temp file with proper extension so Assimp can detect format
         tempFile = "temp_model" + extension;
         std::ofstream tmpFileStream(tempFile, std::ios::binary);
         tmpFileStream.write(reinterpret_cast<char*>(modelData.data()), modelData.size());
@@ -330,7 +327,7 @@ bool Model::loadFromFile(const std::string &path)
                 int w,h,channels;
                 unsigned char *data = nullptr;
                 
-                // Try to load from PAK first (with full path)
+                // Try to load from PAK first
                 if (ResourcePak::IsInitialized()) {
                     std::vector<unsigned char> texData;
                     if (ResourcePak::LoadFile(full, texData)) {

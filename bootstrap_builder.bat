@@ -25,10 +25,10 @@ mkdir "%DEPS%\Compiler\clang" 2>nul
 mkdir Release\Builder 2>nul
 
 REM =====================================================
-REM === CLANG / LLVM (OFFICIEL LLVM MSVC BUILD)
+REM === CLANG / LLVM (OFFICIAL LLVM MSVC BUILD)
 REM =====================================================
 if not exist "%DEPS%\Compiler\clang\bin\clang++.exe" (
-    echo [INFO] Installation de Clang/LLVM...
+  echo [INFO] Installing Clang/LLVM...
     "C:\Windows\System32\curl.exe" -L --fail -o clang.tar.xz ^
         https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz || goto ERROR
 
@@ -39,7 +39,7 @@ if not exist "%DEPS%\Compiler\clang\bin\clang++.exe" (
     )
     del clang.tar.xz
 ) else (
-    echo [INFO] Clang déjà installé, utilisation existante.
+  echo [INFO] Clang already present, using existing install.
 )
 
 REM =====================================================
@@ -48,7 +48,7 @@ REM =====================================================
 if not exist "%CMAKE_BIN%" (
   call :InstallCMake
 ) else (
-  echo [INFO] CMake déjà installé, utilisation existante.
+  echo [INFO] CMake already present, using existing install.
 )
 
 REM =====================================================
@@ -57,7 +57,7 @@ REM =====================================================
 if not exist "%NINJA_EXE%" (
   call :InstallNinja
 ) else (
-  echo [INFO] Ninja déjà installé, utilisation existante.
+  echo [INFO] Ninja already present, using existing install.
 )
 
 REM =====================================================
@@ -120,7 +120,7 @@ REM =====================================================
 REM === COMPILATION BUILDER
 REM =====================================================
 echo.
-echo [INFO] Compilation du builder...
+echo [INFO] Building the builder...
 
 "%DEPS%\Compiler\clang\bin\clang++.exe" ^
     -std=c++17 ^
@@ -131,7 +131,7 @@ echo [INFO] Compilation du builder...
 
 echo.
 echo ========================================
-echo  Builder compilé avec succès ✔
+echo  Builder built successfully
 echo ========================================
 pause
 exit /b 0
@@ -139,8 +139,8 @@ exit /b 0
 :ERROR
 color 0C
 echo.
-echo [ERREUR] Le bootstrap a échoué.
-echo Vérifie ta connexion ou un antivirus bloquant curl.
+echo [ERROR] Bootstrap failed.
+echo Check your connection or an antivirus blocking curl.
 echo.
 pause
 exit /b 1
@@ -150,7 +150,7 @@ REM === FONCTIONS ===
 REM =====================================================
 
 :InstallCMake
-echo [INFO] Installation de CMake...
+echo [INFO] Installing CMake...
 rmdir /S /Q cmake-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o cmake.zip ^
   https://github.com/Kitware/CMake/releases/download/v3.30.5/cmake-3.30.5-windows-x86_64.zip || goto ERROR
@@ -164,7 +164,7 @@ rmdir /S /Q cmake-temp
 exit /b 0
 
 :InstallNinja
-echo [INFO] Installation de Ninja...
+echo [INFO] Installing Ninja...
 rmdir /S /Q ninja-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o ninja.zip ^
   https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip || goto ERROR
@@ -178,7 +178,7 @@ rmdir /S /Q ninja-temp
 exit /b 0
 
 :InstallFreeGLUT
-echo [INFO] Installation FreeGLUT...
+echo [INFO] Installing FreeGLUT...
 rmdir /S /Q freeglut-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o freeglut.zip ^
   https://github.com/freeglut/freeglut/archive/refs/tags/v3.4.0.zip || goto ERROR
@@ -188,13 +188,13 @@ mkdir "%DEPS%\freeglut\lib" 2>nul
 mkdir "%DEPS%\freeglut\include" 2>nul
 
 
-REM === Copie des headers dans le bon dossier (GL/) ===
+REM === Copy headers into GL/ ===
 if not exist "%DEPS%\freeglut\include\GL" mkdir "%DEPS%\freeglut\include\GL"
 xcopy /E /I /Y /S "freeglut-temp\freeglut-3.4.0\include\GL\*.h*" "%DEPS%\freeglut\include\GL\"
 
 
 
-REM === Compilation manuelle de FreeGLUT en statique avec clang++ ===
+REM === Manual static FreeGLUT build with clang++ ===
 set CLANG_BIN="%DEPS%\Compiler\clang\bin"
 set FREEGLUT_SRC=freeglut-temp\freeglut-3.4.0\src
 set OBJ_DIR=freeglut-temp\freeglut-3.4.0\obj
@@ -205,7 +205,7 @@ for %%f in (%FREEGLUT_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\free
 for %%f in (%FREEGLUT_SRC%\mswin\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\freeglut\include" -DFREEGLUT_STATIC -o "%OBJ_DIR%\mswin_%%~nf.obj" || goto ERROR
 %CLANG_BIN%\llvm-lib.exe /OUT:"%DEPS%\freeglut\lib\freeglut_static.lib" %OBJ_DIR%\*.obj || goto ERROR
 
-REM === Alias debug/release names expected by linker ===
+REM === Debug/release aliases expected by linker ===
 if not exist "%DEPS%\freeglut\lib\freeglut_staticd.lib" copy /Y "%DEPS%\freeglut\lib\freeglut_static.lib" "%DEPS%\freeglut\lib\freeglut_staticd.lib" >nul
 if not exist "%DEPS%\freeglut\lib\freeglutd.lib" copy /Y "%DEPS%\freeglut\lib\freeglut_static.lib" "%DEPS%\freeglut\lib\freeglutd.lib" >nul
 
@@ -214,7 +214,7 @@ rmdir /S /Q freeglut-temp
 exit /b 0
 
 :InstallGLEW
-echo [INFO] Installation GLEW...
+echo [INFO] Installing GLEW...
 rmdir /S /Q glew-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o glew-2.3.0.zip ^
   https://github.com/nigels-com/glew/releases/download/glew-2.3.0/glew-2.3.0.zip || goto ERROR
@@ -223,11 +223,11 @@ powershell -Command "Expand-Archive glew-2.3.0.zip glew-temp" || goto ERROR
 mkdir "%DEPS%\glew\lib" 2>nul
 mkdir "%DEPS%\glew\include" 2>nul
 
-REM === Copie des headers dans le bon dossier (GL/) ===
+REM === Copy headers into GL/ ===
 if not exist "%DEPS%\glew\include\GL" mkdir "%DEPS%\glew\include\GL"
 xcopy /E /I /Y /S "glew-temp\glew-2.3.0\include\GL\*.h*" "%DEPS%\glew\include\GL\"
 
-REM === Compilation manuelle de GLEW en statique avec clang++ ===
+REM === Manual static GLEW build with clang++ ===
 set CLANG_BIN="%DEPS%\Compiler\clang\bin"
 set GLEW_SRC=glew-temp\glew-2.3.0\src
 set OBJ_DIR=glew-temp\glew-2.3.0\obj
@@ -241,7 +241,7 @@ rmdir /S /Q glew-temp
 exit /b 0
 
 :InstallFreetype
-echo [INFO] Installation Freetype (build statique)...
+echo [INFO] Installing Freetype (static build)...
 rmdir /S /Q freetype-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o freetype-2.13.3.zip ^
   https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.zip || goto ERROR
@@ -275,7 +275,7 @@ set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
 "%CMAKE_BIN%" --build "%FT_BUILD%" --config Release || goto ERROR
 "%CMAKE_BIN%" --install "%FT_BUILD%" --config Release || goto ERROR
 
-REM === Normaliser les noms de libs freetype ===
+REM === Normalize freetype lib names ===
 if exist "%DEPS%\freetype\lib\freetyped.lib" if not exist "%DEPS%\freetype\lib\freetype.lib" copy /Y "%DEPS%\freetype\lib\freetyped.lib" "%DEPS%\freetype\lib\freetype.lib" >nul
 if not exist "%DEPS%\freetype\lib\freetype.lib" goto ERROR
 
@@ -284,7 +284,7 @@ rmdir /S /Q freetype-temp
 exit /b 0
 
 :InstallZlib
-echo [INFO] Installation zlib...
+echo [INFO] Installing zlib...
 rmdir /S /Q zlib-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o zlib.zip ^
   https://github.com/ShiftMediaProject/zlib/archive/refs/tags/v1.2.13.zip || goto ERROR
@@ -296,7 +296,7 @@ copy "zlib-temp\zlib-1.2.13\lib\zlibstatic.lib" "%DEPS%\zlib\lib\"
 xcopy /E /I /Y /S "zlib-temp\zlib-1.2.13\*.h*" "%DEPS%\zlib\include"
 if exist "zlib-temp\zlib-1.2.13\zconf.h.in" copy /Y "zlib-temp\zlib-1.2.13\zconf.h.in" "%DEPS%\zlib\include\zconf.h"
 
-REM === Compilation manuelle de Zlib en statique avec clang++ ===
+REM === Manual static zlib build with clang++ ===
 set CLANG_BIN="%DEPS%\Compiler\clang\bin"
 set ZLIB_SRC=zlib-temp\zlib-1.2.13
 set OBJ_DIR=zlib-temp\zlib-1.2.13\obj
@@ -310,7 +310,7 @@ rmdir /S /Q zlib-temp
 exit /b 0
 
 :InstallLibsndfile
-echo [INFO] Installation libsndfile...
+echo [INFO] Installing libsndfile...
 rmdir /S /Q libsndfile-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o libsndfile-1.2.2.zip ^
   https://github.com/libsndfile/libsndfile/archive/refs/tags/1.2.2.zip || goto ERROR
@@ -357,7 +357,7 @@ exit /b 0
 
 :InstallAssimp
 
-echo [INFO] Installation d'Assimp...
+echo [INFO] Installing Assimp...
 rmdir /S /Q assimp-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o assimp-5.3.0.zip ^
   https://github.com/assimp/assimp/archive/refs/tags/v5.3.0.zip || goto ERROR
@@ -370,14 +370,14 @@ xcopy /E /I /Y /S "assimp-temp\assimp-5.3.0\include" "%DEPS%\assimp\include" >nu
 xcopy /E /I /Y /S "assimp-temp\assimp-5.3.0\code" "%DEPS%\assimp\include\code" >nul
 
 
-REM === Génération de config.h à partir de config.h.in (suppression des #cmakedefine) ===
+REM === Generate config.h from config.h.in (remove #cmakedefine) ===
 if exist "%DEPS%\assimp\include\assimp\config.h" del "%DEPS%\assimp\include\assimp\config.h"
 findstr /V "#cmakedefine" "assimp-temp\assimp-5.3.0\include\assimp\config.h.in" > "%DEPS%\assimp\include\assimp\config.h"
 echo #define ASSIMP_BUILD_NO_C4D_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
 echo #define ASSIMP_BUILD_NO_IFC_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
 echo #define ASSIMP_BUILD_NO_OPENGEX_IMPORTER 1 >> "%DEPS%\assimp\include\assimp\config.h"
 
-REM === Génération automatique de revision.h minimal si absent ===
+REM === Auto-generate minimal revision.h if missing ===
 if not exist assimp-temp\assimp-5.3.0\include\assimp\revision.h (
   echo // Auto-generated revision.h > assimp-temp\assimp-5.3.0\include\assimp\revision.h
   echo #define VER_MAJOR 5 >> assimp-temp\assimp-5.3.0\include\assimp\revision.h
@@ -388,21 +388,21 @@ if not exist assimp-temp\assimp-5.3.0\include\assimp\revision.h (
   echo #define ASSIMP_REVISION "v5.3.0" >> assimp-temp\assimp-5.3.0\include\assimp\revision.h
 )
 
-REM === Copier revision.h dans include/assimp ET code/ ===
+REM === Copy revision.h into include/assimp and code/ ===
 if exist assimp-temp\assimp-5.3.0\include\assimp\revision.h copy /Y assimp-temp\assimp-5.3.0\include\assimp\revision.h assimp-temp\assimp-5.3.0\code\revision.h >nul
 if exist assimp-temp\assimp-5.3.0\include\assimp\revision.h copy /Y assimp-temp\assimp-5.3.0\include\assimp\revision.h assimp-temp\assimp-5.3.0\code\Common\revision.h >nul
 
-REM === Copie du dossier contrib pour les dépendances internes (utf8cpp, etc.) ===
+REM === Copy contrib folder for internal deps (utf8cpp, etc.) ===
 xcopy /E /I /Y /S "assimp-temp\assimp-5.3.0\contrib" "%DEPS%\assimp\include\contrib" >nul
 
-REM === Compilation manuelle d'Assimp en statique avec clang++ ===
+REM === Manual static Assimp build with clang++ ===
 
 set CLANG_BIN="%DEPS%\Compiler\clang\bin"
 set ASSIMP_SRC=assimp-temp\assimp-5.3.0\code
 set OBJ_DIR=assimp-temp\assimp-5.3.0\obj
 if exist %OBJ_DIR% rmdir /S /Q %OBJ_DIR%
 mkdir %OBJ_DIR%
-echo [INFO] Compilation récursive des sources Assimp...
+echo [INFO] Recursively compiling Assimp sources...
 for /R %ASSIMP_SRC% %%f in (*.cpp) do (
   echo "%%f" | findstr /I /C:"AssetLib\\C4D" >nul
   if errorlevel 1 echo "%%f" | findstr /I /C:"AssetLib\\OpenGEX" >nul
@@ -411,7 +411,7 @@ for /R %ASSIMP_SRC% %%f in (*.cpp) do (
   if errorlevel 1 %CLANG_BIN%\clang++.exe -c "%%f" -I"%DEPS%\assimp\include" -I"assimp-temp\assimp-5.3.0\include\assimp" -I"assimp-temp\assimp-5.3.0\code" -I"assimp-temp\assimp-5.3.0\code\Common" -I"assimp-temp\assimp-5.3.0\contrib\pugixml\src" -I"%DEPS%\zlib\include" -I"assimp-temp\assimp-5.3.0\contrib\rapidjson\include" -I"assimp-temp\assimp-5.3.0\contrib\unzip" -I"assimp-temp\assimp-5.3.0\contrib" -I"assimp-temp\assimp-5.3.0\contrib\openddlparser\include" -DASSIMP_BUILD_NO_EXPORT -DASSIMP_BUILD_NO_OWN_ZLIB -DASSIMP_BUILD_NO_C4D_IMPORTER=1 -DASSIMP_BUILD_NO_IFC_IMPORTER=1 -DASSIMP_BUILD_NO_OPENGEX_IMPORTER=1 -o "%OBJ_DIR%\%%~nf.obj" || goto ERROR
 )
 
-REM === Compilation des sources unzip nécessaires ===
+REM === Compile required unzip sources ===
 set UNZIP_SRC=assimp-temp\assimp-5.3.0\contrib\unzip
 for %%f in (%UNZIP_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\zlib\include" -I"%UNZIP_SRC%" -o "%OBJ_DIR%\unzip_%%~nf.obj" || goto ERROR
 
@@ -419,11 +419,11 @@ for %%f in (%UNZIP_SRC%\*.c) do %CLANG_BIN%\clang.exe -c "%%f" -I"%DEPS%\zlib\in
 
 del assimp-5.3.0.zip
 rmdir /S /Q assimp-temp
-echo [INFO] Compilation Assimp terminée et librairie statique générée.
+echo [INFO] Assimp build done; static library generated.
 exit /b 0
 
 :InstallOpenAL
-echo [INFO] Installation OpenAL...
+echo [INFO] Installing OpenAL...
 rmdir /S /Q OpenAL-temp 2>nul
 "C:\Windows\System32\curl.exe" -L --fail -o openal-soft-1.25.0-bin.zip ^
  https://openal-soft.org/openal-binaries/openal-soft-1.25.0-bin.zip || goto ERROR

@@ -34,14 +34,14 @@ if exist "%TEMPLATE_CLIENT%\main.cpp" (
     xcopy /E /I /Y "%TEMPLATE_CLIENT%\" "%PROJ_DIR%\client\src\" >nul
 )
 
-rem Client sources come exclusively from Template; no fallback stubs
+rem Client sources come exclusively from Template
 
-rem Sample server main (kept minimal; extend template if needed)
+rem Sample server main
 set TEMPLATE_SERVER=%ROOT%Template\server\src
 if exist "%TEMPLATE_SERVER%\main.cpp" (
     xcopy /E /I /Y "%TEMPLATE_SERVER%\" "%PROJ_DIR%\server\src\" >nul
 ) else (
-    rem Sample server main (fallback only if no template)
+    rem Sample server main
     if not exist "%PROJ_DIR%\server\src\main.cpp" (
         >"%PROJ_DIR%\server\src\main.cpp" echo #include ^<iostream^>
         >>"%PROJ_DIR%\server\src\main.cpp" echo int main()
@@ -249,9 +249,6 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo pause
 >>"%PROJ_DIR%\build_server.bat" echo popd
 
-
-rem Les scripts de build client/server utilisent le compilateur intégré Clang/LLVM
-rem Chemin attendu : Dependencies\Compiler\clang\bin\clang++.exe
 color 0A
 echo Project "%PROJ%" created in projects\%PROJ%.
 color 07

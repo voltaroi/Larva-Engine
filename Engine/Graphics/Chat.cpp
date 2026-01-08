@@ -50,7 +50,6 @@ void Chat::sendMessage(const std::string &msg, int playerId) {
     
     clientPtr->sendEvent("sendChat", data);
     
-    // Don't add to local chat history — the server will broadcast it back to us
 }
 
 void Chat::receiveMessage(const std::string &sender, const std::string &msg) {

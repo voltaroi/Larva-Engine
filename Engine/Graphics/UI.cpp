@@ -28,12 +28,11 @@ void UI::loadfont(const char *fontPath)
 
     FT_Face face;
     
-    // Check if path is absolute (contains : or starts with / or \)
     std::string path(fontPath);
     bool isAbsolutePath = (path.find(':') != std::string::npos) || 
                           (path[0] == '/' || path[0] == '\\');
     
-    // Try to load from PAK first (only for relative paths)
+    // Try to load from PAK first
     std::vector<unsigned char> fontData;
     if (!isAbsolutePath && ResourcePak::IsInitialized() && ResourcePak::LoadFile(fontPath, fontData)) {
         // Load from memory using FreeType

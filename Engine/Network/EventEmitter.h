@@ -5,7 +5,7 @@
 #include <sstream>
 #include <iostream>
 
-// Simple JSON value class (very minimal, handles strings, numbers, objects)
+// Simple JSON value class
 class JsonValue {
 public:
     enum Type { Null, String, Number, Object };
@@ -38,9 +38,7 @@ public:
 
     std::string toString() const {
         if (type == String) {
-            // simple escape for quotes and backslashes
             std::string s = strVal;
-            // just quote it; real JSON escaping would be more thorough
             return "\"" + s + "\"";
         } else if (type == Number) {
             char buf[64];
@@ -63,7 +61,6 @@ public:
     static JsonValue parse(const std::string &json);
 };
 
-// EventEmitter: emit(eventName, data) and on(eventName, callback)
 class EventEmitter {
 public:
     using Callback = std::function<void(const JsonValue &)>;
@@ -73,17 +70,14 @@ public:
     }
 
     void emit(const std::string &eventName, const JsonValue &data = JsonValue()) {
-        // To be overridden in subclasses or called via sendEvent
         auto it = listeners.find(eventName);
         if (it != listeners.end()) {
             it->second(data);
         }
     }
 
-    // Send event over network (to be overridden in Client/Server)
     virtual void sendEvent(const std::string &eventName, const JsonValue &data) = 0;
 
-    // Process received event (called by receive thread or main thread)
     void handleEvent(const std::string &eventName, const JsonValue &data) {
         auto it = listeners.find(eventName);
         if (it != listeners.end()) {
@@ -99,20 +93,17 @@ protected:
 
 // Simple JSON parser
 inline JsonValue JsonValue::parse(const std::string &json) {
-    // Very basic parser: handles strings, numbers, and objects
     std::string s = json;
-    // trim whitespace
     while (!s.empty() && std::isspace(s[0])) s.erase(0, 1);
     while (!s.empty() && std::isspace(s.back())) s.pop_back();
 
     if (s.empty() || s == "null") return JsonValue();
     if (s[0] == '"') {
-        // string
         size_t end = s.rfind('"');
         if (end > 0) return JsonValue(s.substr(1, end - 1));
     }
     if (s[0] == '{') {
-        // object (simplified: key:value,key:value)
+        // object
         JsonValue obj;
         obj.type = Object;
         size_t pos = 1;

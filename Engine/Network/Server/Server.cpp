@@ -55,7 +55,6 @@ bool Server::start(int port) {
         while (running) {
             SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
             if (clientSocket != INVALID_SOCKET) {
-                // std::cout << "New client connected. socket=" << clientSocket << std::endl;
                 std::thread(&Server::clientHandler, this, clientSocket).detach();
             } else {
                 std::cerr << "accept failed: " << WSAGetLastError() << std::endl;
@@ -192,7 +191,7 @@ void Server::clientHandler(SOCKET client) {
     }
 
     if (leavingId != -1 && onDisconnect) {
-        onDisconnect(leavingId);  // callback runs without clientsMutex to avoid deadlocks
+        onDisconnect(leavingId);
     }
 
     closesocket(client);
