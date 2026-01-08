@@ -62,7 +62,7 @@ rem Client config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "buildType": "release",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "isConsoleApp": true,
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "staticLink": true,
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo.
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "sourceFiles": [
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "projects/%PROJ%/client/src/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/*",
@@ -71,20 +71,21 @@ rem Client config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "includeDirs": [
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         ".",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glew-2.2.0/include",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/assimp/include",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/libsndfile/include",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/openal-soft-1.24.2-bin/include",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freeglut/include",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glm-master",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freetype/include"
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/glew/include",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/assimp/include",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/libsndfile/include",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/OpenAL/include",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/freeglut/include",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/glm/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freetype/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freetype/include/freetype2"
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     ],
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "libraryDirs": [
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glew-2.2.0/lib",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/assimp/lib",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/libsndfile/lib",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/openal-soft-1.24.2-bin/libs/Win64",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/glew/lib",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/assimp/lib",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/libsndfile/lib",
+>>%PROJ_DIR%\configs\%PROJ%_client_config.json echo         "Dependencies/OpenAL/lib",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freeglut/lib",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freetype/lib",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/zlib/lib"
@@ -116,6 +117,10 @@ rem Client config JSON
 rem Server config JSON
 >"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo {
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "name": "%PROJ% - Server",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glew/lib",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/assimp/lib",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/libsndfile/lib",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/OpenAL/lib",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "outputDir": "projects/%PROJ%/Release/Server",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "objectDir": "projects/%PROJ%/obj/Server",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "outputName": "server",
@@ -123,10 +128,17 @@ rem Server config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "buildType": "release",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "isConsoleApp": true,
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "staticLink": false,
->>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo(
+>>%PROJ_DIR%\configs\%PROJ%_server_config.json echo.
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     "sourceFiles": [
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "projects/%PROJ%/server/src/*",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "Engine/Network/ServerChat.cpp",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         ".",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glew/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/assimp/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/libsndfile/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/OpenAL/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/freeglut/include",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Dependencies/glm/include",
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo         "Engine/Network/Server/Server.cpp"
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo     ],
 >>"%PROJ_DIR%\configs\%PROJ%_server_config.json" echo(

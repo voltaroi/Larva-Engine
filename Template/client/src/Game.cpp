@@ -92,6 +92,13 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
 
     player.init(screenWidth, screenHeight);
 
+    // Load font for UI text rendering
+    try {
+        UI::loadfont("C:/Windows/Fonts/arial.ttf");
+    } catch (const std::exception& e) {
+        std::cerr << "Warning: Failed to load font: " << e.what() << std::endl;
+    }
+
     // Initialize chat system
     globalChat.init(client);
 

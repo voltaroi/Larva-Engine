@@ -100,31 +100,34 @@ void display()
     game.display();
 
     // === UI START ===
-    // Get actual viewport dimensions for accurate UI scaling
+    glUseProgram(0);
+    glActiveTexture(GL_TEXTURE0);
     GLint viewport[4];
     glGetIntegerv(GL_VIEWPORT, viewport);
     int uiWidth = viewport[2];
     int uiHeight = viewport[3];
-    
-    glMatrixMode(GL_PROJECTION);
-    glPushMatrix();
-    glLoadIdentity();
-    gluOrtho2D(0, uiWidth, 0, uiHeight);
 
-    glMatrixMode(GL_MODELVIEW);
-    glPushMatrix();
-    glLoadIdentity();
+    if (uiWidth > 0 && uiHeight > 0) {
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        gluOrtho2D(0, uiWidth, 0, uiHeight);
 
-    glDisable(GL_DEPTH_TEST);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
 
-    game.updateUI(uiWidth, uiHeight);
+        glDisable(GL_DEPTH_TEST);
 
-    glEnable(GL_DEPTH_TEST);
+        game.updateUI(uiWidth, uiHeight);
 
-    glPopMatrix();
-    glMatrixMode(GL_PROJECTION);
-    glPopMatrix();
-    glMatrixMode(GL_MODELVIEW);
+        glEnable(GL_DEPTH_TEST);
+
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+        glMatrixMode(GL_MODELVIEW);
+    }
     // === UI END ===
 
     glutSwapBuffers();

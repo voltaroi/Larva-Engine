@@ -1,6 +1,9 @@
 #include "Client.h"
 #include <chrono>
 
+#undef min
+#undef max
+
 Client::Client() : running(false), clientSocket(INVALID_SOCKET) {}
 
 Client::~Client() {
