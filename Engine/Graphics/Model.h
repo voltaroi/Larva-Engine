@@ -29,6 +29,7 @@ public:
     static void BeginShadowPass();
     static void EndShadowPass();
     static void SetLightPosition(float x, float y, float z);
+    static void SetFrameUniforms(const float view[16], const float projection[16]);
     
 public:
     struct Mesh {

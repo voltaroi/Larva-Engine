@@ -84,37 +84,46 @@ float esmShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
     float bias = computeBias(normal, lightDir);
     float receiverDepth = currentDepth - bias - NORMAL_OFFSET;
 
-    vec2 snapped = floor(projCoords.xy * 128.0) / 128.0;
-    float angle = blueNoiseSample(snapped) * 6.2831853;
-    float ca = cos(angle);
+    // derived from proj coords to rotate poisson disk jitter smoothly.
+    float angle = blueNoiseSample(projCoords.xy) * 6.2831853;    float ca = cos(angle);
     float sa = sin(angle);
     mat2 rot = mat2(ca, -sa, sa, ca);
 
     float lightSizeUV = LIGHT_WORLD_SIZE / LIGHT_FRUSTUM_WIDTH;
-    float filterRadius = mix(1.0 * texelSize.x, 7.5 * texelSize.x, clamp((receiverDepth - NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE), 0.0, 1.0));
+    // Increase filter radius to produce softer penumbra
+    float filterRadius = mix(1.0 * texelSize.x, 12.0 * texelSize.x, clamp((receiverDepth - NEAR_PLANE) / (FAR_PLANE - NEAR_PLANE), 0.0, 1.0));
 
+    // VSM: sample moments (depth, depth^2) and use Chebyshev inequality
     float shadow = 0.0;
-    const float ESM_K = 90.0;
-    for (int i = 0; i < 16; ++i) {
-        vec2 offset = rot * (poissonDisk[i] * filterRadius * lightSizeUV * 2.0);
-        float sampleDepth = texture(shadowMap, projCoords.xy + offset).r;
-        float vis = esmVisibility(receiverDepth, sampleDepth, ESM_K);
-        shadow += 1.0 - vis;
+    int samples = int(mix(4.0, 24.0, clamp(receiverDepth, 0.0, 1.0)));
+    for (int i = 0; i < samples; ++i) {
+        vec2 offset = rot * (poissonDisk[i] * filterRadius * lightSizeUV * 3.0);
+        vec2 moments = texture(shadowMap, projCoords.xy + offset).rg;
+        float mean = moments.x;
+        float mean2 = moments.y;
+        float variance = mean2 - mean * mean;
+        // larger min variance to reduce light bleeding artifacts
+        variance = max(variance, 0.0005);
+        float d = receiverDepth;
+        // Chebyshev upper bound on probability that sampleDepth <= d
+        float p = variance / (variance + (d - mean) * (d - mean));
+        p = clamp(p, 0.0, 1.0);
+        float contrib = (d <= mean) ? 0.0 : (1.0 - p);
+        shadow += contrib;
     }
-    shadow /= 16.0;
+    shadow /= float(samples);
+    // Slight smoothing for final blend
+    shadow = smoothstep(0.0, 1.0, shadow);
     return shadow;
 }
 
 void main()
 {
-    vec3 baseColor = objectColor;
-    if (hasTexture) {
-        vec4 texColor = texture(diffuseTexture, TexCoord);
-        baseColor = texColor.rgb * objectColor;
-    }
-
+    vec4 texColor = texture(diffuseTexture, TexCoord);
+    vec3 baseColor = hasTexture ? texColor.rgb : objectColor;
+    
     float ambientStrength = 0.3;
-    vec3 ambient = ambientStrength * lightColor;
+    vec3 ambient = ambientStrength * lightColor * baseColor;
 
     vec3 norm = normalize(Normal);
     vec3 lightDir = normalize(lightPos - FragPos);
@@ -124,7 +133,10 @@ void main()
     float specularStrength = 0.5;
     vec3 viewDir = normalize(viewPos - FragPos);
     vec3 reflectDir = reflect(-lightDir, norm);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+    float spec = max(dot(viewDir, reflectDir), 0.0);
+    spec = spec * spec; // ^2
+    spec = spec * spec; // ^4
+    spec = spec * spec; // ^8
     vec3 specular = specularStrength * spec * lightColor;
 
     float shadow = esmShadow(FragPosLightSpace, norm, lightDir);
