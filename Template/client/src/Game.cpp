@@ -8,6 +8,9 @@
 
 static const float NETWORK_CAMERA_HEIGHT = -3.0f;
 
+std::string ip = "127.0.0.1";
+int port = 3000;
+
 int Game::mouseX = 0;
 int Game::mouseY = 0;
 bool Game::mousePressed = false;
@@ -15,27 +18,36 @@ bool escape = false;
 bool mouseIsBlocking = false;
 bool ignoreNextMouse = false;
 
+// Input
 bool inputForward = false;
 bool inputBackward = false;
 bool inputLeftGlobal = false;
 bool inputRightGlobal = false;
 bool inputJumpGlobal = false;
 
+bool isConnected = false;
+
 Model cubeModel1, cubeModel2, cubeModel3, floorModel;
 Model triangleModel, sphereModel;
 
 Camera player{};
 
+// Buttons Options
 UIButton ButtonQuit;
 UIButton ButtonSetFullscreenBorderless;
 UIButton ButtonSetFullscreen;
 UIButton ButtonSetWindowed;
 
+UIButton ButtonConnection;
+
 Client client;
 
 Chat globalChat;
+TextBox *TBIp = nullptr;
+TextBox *TBPort = nullptr;
 
-struct PlayerCube {
+struct PlayerCube
+{
     Model cube;
     float r, g, b;
     int id = -1;
@@ -44,7 +56,8 @@ struct PlayerCube {
     float targetX = 0.0f;
     float targetY = 0.0f;
 
-    PlayerCube() {
+    PlayerCube()
+    {
         cube.loadFromFile("Models/cube.fbx");
     }
 };
@@ -55,20 +68,15 @@ std::mutex playersMutex;
 std::vector<std::string> incomingMessages;
 std::mutex incomingMessagesMutex;
 int nextInputSeq = 1;
-std::vector<std::tuple<int,float,float>> pendingInputs;
+std::vector<std::tuple<int, float, float>> pendingInputs;
 std::mutex pendingMutex;
 float predictedX = 0.0f;
 float predictedY = 0.0f;
 
-void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
+void Game::init(int screenWidth, int screenHeight, WindowUtils &windowUtil)
 {
-    if (client.connectToServer("127.0.0.1", 3000)) {
-        client.onMessage = [](const std::string &msg) {
-            std::lock_guard<std::mutex> lg(incomingMessagesMutex);
-            incomingMessages.push_back(msg);
-        };
-        client.sendMessage("HELLO");
-    }
+    Game::connection();
+
     windowUtils = &windowUtil;
 
     // Load models
@@ -79,7 +87,6 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     floorModel.loadFromFile("Models/cube.fbx");
     triangleModel.loadFromFile("Models/triangle.fbx");
     sphereModel.loadFromFile("Models/sphere.fbx");
-    
     cubeModel1.setScale(1, 1, 0.2);
     cubeModel1.setPosition(0.0, -4.0, 15.0);
     cubeModel2.setPosition(2.0, -2.0, 15.0);
@@ -93,14 +100,45 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     player.init(screenWidth, screenHeight);
 
     // Load font for UI text rendering
-    try {
+    try
+    {
         UI::loadfont("C:/Windows/Fonts/arial.ttf");
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception &e)
+    {
         std::cerr << "Warning: Failed to load font: " << e.what() << std::endl;
     }
 
     // Initialize chat system
     globalChat.init(client);
+
+    // Initialize input textbox
+    if (!TBIp)
+    {
+        TBIp = new TextBox(10, screenHeight - 200, 200, 30);
+        TBIp->onTextChanged = [](const std::string &s)
+        {
+            ip = s;
+        };
+    }
+
+    if (!TBPort)
+    {
+        TBPort = new TextBox(10, screenHeight - 200, 200, 30);
+        TBPort->onTextChanged = [](const std::string &s)
+        {
+            try
+            {
+                int p = std::stoi(s);
+                if (p > 0 && p <= 65535)
+                    port = p;
+            }
+            catch (...)
+            {
+                // ignore invalid input while typing
+            }
+        };
+    }
 
     // Global light
     glEnable(GL_NORMALIZE);
@@ -108,33 +146,35 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils& windowUtil)
     glEnable(GL_LIGHT0);
     glEnable(GL_COLOR_MATERIAL);
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
-    GLfloat lightPos[] = { 0.0f, 10.0f, 10.0f, 1.0f };
-    GLfloat lightCol[] = { 0.95f, 0.95f, 0.95f, 1.0f };
-    GLfloat ambientCol[] = { 0.2f, 0.2f, 0.2f, 1.0f };
+    GLfloat lightPos[] = {0.0f, 10.0f, 10.0f, 1.0f};
+    GLfloat lightCol[] = {0.95f, 0.95f, 0.95f, 1.0f};
+    GLfloat ambientCol[] = {0.2f, 0.2f, 0.2f, 1.0f};
     glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
     glLightfv(GL_LIGHT0, GL_DIFFUSE, lightCol);
     glLightfv(GL_LIGHT0, GL_AMBIENT, ambientCol);
 
     ButtonQuit.init(0, 80, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Quitter", 0.0f, 0.5f, 0.5f, false, 0.0f, []()
-                { std::cout << "Bouton cliqu� !" << std::endl;
+                    { std::cout << "Bouton cliqu� !" << std::endl;
                 exit(0); });
 
     ButtonSetFullscreenBorderless.init(0, 30, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "FullscreenBorderless", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
-                { 
+                                       { 
                     std::cout << "Bouton cliqu� !" << std::endl;
-                    windowUtils->setFullscreenBorderless(800, 600);
-                });
+                    windowUtils->setFullscreenBorderless(800, 600); });
 
     ButtonSetFullscreen.init(0, -20, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Fullscreen", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
-                { std::cout << "Bouton cliqu� !" << std::endl;
-                    windowUtils->setFullscreen();
-                });
+                             { std::cout << "Bouton cliqu� !" << std::endl;
+                    windowUtils->setFullscreen(); });
 
     ButtonSetWindowed.init(0, -70, UIButton::AnchorH::Center, UIButton::AnchorV::Middle, 10, 10, "Windowed", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
-                { 
+                           { 
                     std::cout << "Bouton cliqu� !" << std::endl;
-                    windowUtils->setWindowed(800, 600);
-                });
+                    windowUtils->setWindowed(800, 600); });
+
+    ButtonConnection.init(0, -300, UIButton::AnchorH::Left, UIButton::AnchorV::Top, 10, 10, "Connection", 0.0f, 0.5f, 0.5f, false, 0.0f, [this]()
+                          { 
+                    std::cout << "Bouton cliqu� !" << std::endl;
+                    Game::connection(); });
 }
 
 void Game::display()
@@ -149,7 +189,8 @@ void Game::display()
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
-        for (auto &p : players) {
+        for (auto &p : players)
+        {
             p.cube.draw();
         }
     }
@@ -164,7 +205,8 @@ void Game::display()
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
-        for (auto &p : players) {
+        for (auto &p : players)
+        {
             p.cube.draw();
         }
     }
@@ -180,44 +222,63 @@ void Game::update()
         std::lock_guard<std::mutex> lg(incomingMessagesMutex);
         msgsToProcess.swap(incomingMessages);
     }
-    for (const auto &msg : msgsToProcess) {
+    for (const auto &msg : msgsToProcess)
+    {
         std::istringstream iss(msg);
         std::string cmd;
         iss >> cmd;
 
-        if (cmd == "ASSIGN") {
+        if (cmd == "ASSIGN")
+        {
             int id, r, g, b;
             iss >> id >> r >> g >> b;
             myPlayerId = id;
             globalChat.setPlayerId(id);
             std::cout << "Assigned id: " << id << " color=" << r << "," << g << "," << b << std::endl;
         }
-        else if (cmd == "EXIST" || cmd == "JOIN") {
+        else if (cmd == "EXIST" || cmd == "JOIN")
+        {
             int id, r, g, b;
             float px = 0.0f, py = 0.0f;
             iss >> id >> r >> g >> b;
-            if (cmd == "EXIST") {
+            if (cmd == "EXIST")
+            {
                 iss >> px >> py;
             }
-            if (id == myPlayerId) continue;
+            if (id == myPlayerId)
+                continue;
 
             {
                 std::lock_guard<std::mutex> lg(playersMutex);
                 bool found = false;
-                for (auto &p : players) {
-                    if (p.id == id) {
-                        p.r = (float)r; p.g = (float)g; p.b = (float)b;
-                        p.curX = px; p.curY = py; p.targetX = px; p.targetY = py;
+                for (auto &p : players)
+                {
+                    if (p.id == id)
+                    {
+                        p.r = (float)r;
+                        p.g = (float)g;
+                        p.b = (float)b;
+                        p.curX = px;
+                        p.curY = py;
+                        p.targetX = px;
+                        p.targetY = py;
                         p.cube.setColor(r, g, b);
                         p.cube.setPosition(p.curX, -3.5f, p.curY);
-                        found = true; break;
+                        found = true;
+                        break;
                     }
                 }
-                if (!found) {
+                if (!found)
+                {
                     PlayerCube pc;
                     pc.id = id;
-                    pc.r = (float)r; pc.g = (float)g; pc.b = (float)b;
-                    pc.curX = px; pc.curY = py; pc.targetX = px; pc.targetY = py;
+                    pc.r = (float)r;
+                    pc.g = (float)g;
+                    pc.b = (float)b;
+                    pc.curX = px;
+                    pc.curY = py;
+                    pc.targetX = px;
+                    pc.targetY = py;
                     pc.cube.setColor(r, g, b);
                     pc.cube.setScale(0.5f, 1.0f, 0.5f);
                     pc.cube.setPosition(pc.curX, -3.5f, pc.curY);
@@ -225,21 +286,28 @@ void Game::update()
                 }
             }
         }
-        else if (cmd == "STATE") {
-            int id; float px, py; int lastSeq = 0;
+        else if (cmd == "STATE")
+        {
+            int id;
+            float px, py;
+            int lastSeq = 0;
             iss >> id >> px >> py >> lastSeq;
-            if (id == myPlayerId) {
+            if (id == myPlayerId)
+            {
                 {
                     std::lock_guard<std::mutex> lg(pendingMutex);
-                    std::vector<std::tuple<int,float,float>> remaining;
-                    for (auto &pr : pendingInputs) {
-                        if (std::get<0>(pr) > lastSeq) remaining.push_back(pr);
+                    std::vector<std::tuple<int, float, float>> remaining;
+                    for (auto &pr : pendingInputs)
+                    {
+                        if (std::get<0>(pr) > lastSeq)
+                            remaining.push_back(pr);
                     }
                     pendingInputs.swap(remaining);
 
                     float px0 = px;
                     float py0 = py;
-                    for (auto &pr : pendingInputs) {
+                    for (auto &pr : pendingInputs)
+                    {
                         float dx = std::get<1>(pr);
                         float dz = std::get<2>(pr);
                         px0 += dx;
@@ -250,21 +318,30 @@ void Game::update()
                 }
 
                 player.setPosition(predictedX, NETWORK_CAMERA_HEIGHT, predictedY);
-            } else {
+            }
+            else
+            {
                 std::lock_guard<std::mutex> lg(playersMutex);
-                for (auto &p : players) {
-                    if (p.id == id) {
-                        p.targetX = px; p.targetY = py;
+                for (auto &p : players)
+                {
+                    if (p.id == id)
+                    {
+                        p.targetX = px;
+                        p.targetY = py;
                         break;
                     }
                 }
             }
         }
-        else if (cmd == "LEAVE") {
-            int id; iss >> id;
+        else if (cmd == "LEAVE")
+        {
+            int id;
+            iss >> id;
             {
                 std::lock_guard<std::mutex> lg(playersMutex);
-                players.erase(std::remove_if(players.begin(), players.end(), [&](const PlayerCube &pc) { return pc.id == id; }), players.end());
+                players.erase(std::remove_if(players.begin(), players.end(), [&](const PlayerCube &pc)
+                                             { return pc.id == id; }),
+                              players.end());
             }
         }
     }
@@ -288,7 +365,8 @@ void Game::update()
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
-        for (auto &p : players) {
+        for (auto &p : players)
+        {
             p.curX += (p.targetX - p.curX) * alpha;
             p.curY += (p.targetY - p.curY) * alpha;
             p.cube.setPosition(p.curX, -3.5f, p.curY);
@@ -297,16 +375,23 @@ void Game::update()
 
     static std::chrono::steady_clock::time_point lastSend = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
-    if (now - lastSend >= std::chrono::milliseconds(50)) {
+    if (now - lastSend >= std::chrono::milliseconds(50))
+    {
         lastSend = now;
 
-        if (myPlayerId != -1) {
+        if (myPlayerId != -1)
+        {
             int mask = 0;
-                    if (inputForward) mask |= 0x01;
-                    if (inputBackward) mask |= 0x02;
-                    if (inputLeftGlobal) mask |= 0x04;
-                    if (inputRightGlobal) mask |= 0x08;
-            if (inputJumpGlobal) mask |= 0x10;
+            if (inputForward)
+                mask |= 0x01;
+            if (inputBackward)
+                mask |= 0x02;
+            if (inputLeftGlobal)
+                mask |= 0x04;
+            if (inputRightGlobal)
+                mask |= 0x08;
+            if (inputJumpGlobal)
+                mask |= 0x10;
 
             int seq = nextInputSeq++;
 
@@ -317,10 +402,26 @@ void Game::update()
             float rightZ = -forwardX;
 
             float dx = 0.0f, dz = 0.0f;
-            if (mask & 0x01) { dx += forwardX * speed; dz += forwardZ * speed; }
-            if (mask & 0x02) { dx -= forwardX * speed; dz -= forwardZ * speed; }
-            if (mask & 0x04) { dx += rightX * speed; dz += rightZ * speed; }
-            if (mask & 0x08) { dx -= rightX * speed; dz -= rightZ * speed; }
+            if (mask & 0x01)
+            {
+                dx += forwardX * speed;
+                dz += forwardZ * speed;
+            }
+            if (mask & 0x02)
+            {
+                dx -= forwardX * speed;
+                dz -= forwardZ * speed;
+            }
+            if (mask & 0x04)
+            {
+                dx += rightX * speed;
+                dz += rightZ * speed;
+            }
+            if (mask & 0x08)
+            {
+                dx -= rightX * speed;
+                dz -= rightZ * speed;
+            }
 
             {
                 std::lock_guard<std::mutex> lg(pendingMutex);
@@ -346,10 +447,17 @@ void Game::updateUI(int screenWidth, int screenHeight)
     glDisable(GL_LIGHT0);
     glDisable(GL_NORMALIZE);
 
+    if (!isConnected)
+    {
+        std::ostringstream oss;
+        oss << "Error to connection serveur " << ip << ":" << port;
+        UI::renderText(oss.str(), 10, screenHeight - 30, 0.5f);
+    }
+
     if (escape)
     {
         UI::drawBox(screenWidth / 2 - 150, screenHeight / 2 - 225, 300, 450, 0.2f, 0.2f, 0.2f, 0.8f, false, 15.0f);
-        
+
         UI::renderText("PAUSE", screenWidth / 2 - 70, screenHeight / 2 + 180, 1.0f);
 
         ButtonQuit.update(mouseX, mouseY, mousePressed);
@@ -361,6 +469,24 @@ void Game::updateUI(int screenWidth, int screenHeight)
         ButtonSetFullscreen.draw();
         ButtonSetWindowed.update(mouseX, mouseY, mousePressed);
         ButtonSetWindowed.draw();
+
+        // Connection UI
+        if (TBIp)
+        {
+            TBIp->x = 10;
+            TBIp->y = screenHeight - 200;
+            TBIp->draw();
+        }
+
+        if (TBPort)
+        {
+            TBPort->x = 10;
+            TBPort->y = screenHeight - 250;
+            TBPort->draw();
+        }
+
+        ButtonConnection.update(mouseX, mouseY, mousePressed);
+        ButtonConnection.draw();
 
         glutSetCursor(GLUT_CURSOR_LEFT_ARROW);
         mouseIsBlocking = false;
@@ -378,15 +504,30 @@ void Game::updateUI(int screenWidth, int screenHeight)
 
     // Draw chat
     globalChat.draw(screenWidth, screenHeight);
-
     glPopAttrib();
 }
 
 void Game::globalKeyboard(unsigned char key, int x, int y)
 {
     // Handle chat input if chat is open
-    if (globalChat.isVisible()) {
+    if (globalChat.isVisible())
+    {
         globalChat.handleKey(key);
+        glutPostRedisplay();
+        return;
+    }
+
+    // If textbox has focus, send key to it
+    if (TBIp && TBIp->focused)
+    {
+        TBIp->handleKey(key);
+        glutPostRedisplay();
+        return;
+    }
+
+    if (TBPort && TBPort->focused)
+    {
+        TBPort->handleKey(key);
         glutPostRedisplay();
         return;
     }
@@ -401,17 +542,32 @@ void Game::globalKeyboard(unsigned char key, int x, int y)
     case 't':
         escape = !escape;
         break;
-    case 'c': case 'C':
+    case 'c':
+    case 'C':
         globalChat.toggleVisible();
         break;
     }
     switch (key)
     {
-    case 'z': case 'Z': inputForward = true; break;
-    case 's': case 'S': inputBackward = true; break;
-    case 'q': case 'Q': inputLeftGlobal = true; break;
-    case 'd': case 'D': inputRightGlobal = true; break;
-    case ' ': inputJumpGlobal = true; break;
+    case 'z':
+    case 'Z':
+        inputForward = true;
+        break;
+    case 's':
+    case 'S':
+        inputBackward = true;
+        break;
+    case 'q':
+    case 'Q':
+        inputLeftGlobal = true;
+        break;
+    case 'd':
+    case 'D':
+        inputRightGlobal = true;
+        break;
+    case ' ':
+        inputJumpGlobal = true;
+        break;
     }
     glutPostRedisplay();
 }
@@ -422,11 +578,25 @@ void Game::globalKeyboardUp(unsigned char key, int x, int y)
 
     switch (key)
     {
-    case 'z': case 'Z': inputForward = false; break;
-    case 's': case 'S': inputBackward = false; break;
-    case 'q': case 'Q': inputLeftGlobal = false; break;
-    case 'd': case 'D': inputRightGlobal = false; break;
-    case ' ': inputJumpGlobal = false; break;
+    case 'z':
+    case 'Z':
+        inputForward = false;
+        break;
+    case 's':
+    case 'S':
+        inputBackward = false;
+        break;
+    case 'q':
+    case 'Q':
+        inputLeftGlobal = false;
+        break;
+    case 'd':
+    case 'D':
+        inputRightGlobal = false;
+        break;
+    case ' ':
+        inputJumpGlobal = false;
+        break;
     }
 }
 
@@ -453,6 +623,27 @@ void Game::globalMouse(int button, int state, int x, int y)
         mousePressed = (state == GLUT_DOWN);
     }
     globalMouseMotion(x, y);
+    // Manage TextBox focus on click
+    if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN)
+    {
+        if (TBIp && TBIp->contains(mouseX, mouseY))
+        {
+            TBIp->setFocus(true);
+        }
+        else if (TBIp)
+        {
+            TBIp->setFocus(false);
+        }
+
+        if (TBPort && TBPort->contains(mouseX, mouseY))
+        {
+            TBPort->setFocus(true);
+        }
+        else if (TBPort)
+        {
+            TBPort->setFocus(false);
+        }
+    }
     glutPostRedisplay();
 }
 
@@ -463,5 +654,25 @@ void Game::blockMouse(int screenWidth, int screenHeight)
         ignoreNextMouse = true;
         glutWarpPointer(screenWidth / 2, screenHeight / 2 + 10);
         mouseIsBlocking = true;
+    }
+}
+
+void Game::connection()
+{
+    if (isConnected)
+    {
+        client.disconnect();
+        isConnected = false;
+    }
+
+    if (client.connectToServer(ip, port))
+    {
+        client.onMessage = [](const std::string &msg)
+        {
+            std::lock_guard<std::mutex> lg(incomingMessagesMutex);
+            incomingMessages.push_back(msg);
+        };
+        client.sendMessage("HELLO");
+        isConnected = true;
     }
 }

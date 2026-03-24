@@ -2,6 +2,7 @@
 #include <string>
 #include <GL/glut.h>
 #include <functional>
+#include "UI.h"
 
 class TextBox {
 public:

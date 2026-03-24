@@ -22,11 +22,10 @@ void TextBox::draw() const {
     glVertex2f(x, y + height);
     glEnd();
 
-    glColor3f(0.0f, 0.0f, 0.0f);
-    glRasterPos2f(x + 4, y + height / 2 - 4);
-    for (char c : text) {
-        glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
-    }
+    UI::setColor(0.0f, 0.0f, 0.0f, 1.0f);
+    float textX = x + 6.0f;
+    float textY = y + (height / 2.0f) - 8.0f;
+    UI::renderText(text, textX, textY, 0.6f);
 }
 
 void TextBox::handleKey(unsigned char key) {
@@ -49,7 +48,6 @@ void TextBox::handleKey(unsigned char key) {
         }
     }
 }
-
 
 bool TextBox::contains(float mx, float my) const {
     return mx >= x && mx <= x + width && my >= y && my <= y + height;

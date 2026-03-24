@@ -12,6 +12,15 @@
 int main(int argc, char **argv)
 {
     Server server;
+    int port = 3000;
+    if (argc >= 2) {
+        try {
+            int p = std::stoi(argv[1]);
+            if (p > 0 && p <= 65535) port = p;
+        } catch (...) {
+            std::cerr << "Warning: invalid port argument '" << argv[1] << "', using default 3000" << std::endl;
+        }
+    }
     struct Player {
         int id;
         int r, g, b;
@@ -80,7 +89,8 @@ int main(int argc, char **argv)
         server.broadcast(bufLeave);
     });
 
-    if (server.start(3000)) {
+    std::cout << "Starting server on port " << port << std::endl;
+    if (server.start(port)) {
         // Enable chat (uncomment to disable)
         if (server.getChat()) {
             server.getChat()->setEnabled(true);

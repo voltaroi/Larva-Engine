@@ -37,5 +37,7 @@ public:
 	static void globalKeyboardUp(unsigned char key, int x, int y);
 	static void globalMouseMotion(int x, int y);
 	static void globalMouse(int button, int state, int x, int y);
+
+	void connection();
 };
 #endif
