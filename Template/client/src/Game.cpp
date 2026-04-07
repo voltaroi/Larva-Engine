@@ -179,6 +179,9 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils &windowUtil)
 
 void Game::display()
 {
+    player.networkUpdate();
+    player.updateView();
+
     Model::BeginShadowPass();
     cubeModel1.draw();
     cubeModel2.draw();
@@ -196,6 +199,13 @@ void Game::display()
     }
 
     Model::EndShadowPass();
+
+    float viewMatrix[16];
+    float projectionMatrix[16];
+    glGetFloatv(GL_MODELVIEW_MATRIX, viewMatrix);
+    glGetFloatv(GL_PROJECTION_MATRIX, projectionMatrix);
+    Model::SetFrameUniforms(viewMatrix, projectionMatrix);
+
     cubeModel1.draw();
     cubeModel2.draw();
     cubeModel3.draw();
@@ -210,9 +220,6 @@ void Game::display()
             p.cube.draw();
         }
     }
-
-    player.networkUpdate();
-    player.updateView();
 }
 
 void Game::update()

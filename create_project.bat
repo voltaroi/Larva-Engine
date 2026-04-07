@@ -184,11 +184,6 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo ^    exit /b 1
 >>"%PROJ_DIR%\build_client.bat" echo )
 
-
->>"%PROJ_DIR%\build_client.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
->>"%PROJ_DIR%\build_client.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
->>"%PROJ_DIR%\build_client.bat" echo rem Client compilation
->>"%PROJ_DIR%\build_client.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\client\src\main.cpp -o projects\%PROJ%\Release\Client\client.exe
 >>"%PROJ_DIR%\build_client.bat" echo set OUT=projects\%PROJ%\Release\Client
 >>"%PROJ_DIR%\build_client.bat" echo set ASSETS_TEMP=projects\%PROJ%\Assets
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "%%OUT%%" mkdir "%%OUT%%"
@@ -224,12 +219,7 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo ^        popd
 >>"%PROJ_DIR%\build_server.bat" echo ^        exit /b 1
 >>"%PROJ_DIR%\build_server.bat" echo ^    )
->>"%PROJ_DIR%\build_server.bat" echo ^    echo.
->>"%PROJ_DIR%\build_server.bat" echo )
->>"%PROJ_DIR%\build_server.bat" echo Release\Builder\larva-builder.exe projects\%PROJ%\configs\%PROJ%_server_config.json
->>"%PROJ_DIR%\build_server.bat" echo if %%errorlevel%% neq 0 (
->>"%PROJ_DIR%\build_server.bat" echo ^    color 0C
->>"%PROJ_DIR%\build_server.bat" echo ^    echo.
+
 >>"%PROJ_DIR%\build_server.bat" echo ^    echo Server build failed %PROJ%
 >>"%PROJ_DIR%\build_server.bat" echo ^    color 07
 >>"%PROJ_DIR%\build_server.bat" echo ^    pause
@@ -237,10 +227,6 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo ^    exit /b 1
 >>"%PROJ_DIR%\build_server.bat" echo )
 
->>"%PROJ_DIR%\build_server.bat" echo set COMPILER=Dependencies\Compiler\clang\bin\clang++.exe
->>"%PROJ_DIR%\build_server.bat" echo set COMPILER_FLAGS=-std=c++17 -O2
->>"%PROJ_DIR%\build_server.bat" echo rem Server compilation
->>"%PROJ_DIR%\build_server.bat" echo %%COMPILER%% %%COMPILER_FLAGS%% projects\%PROJ%\server\src\main.cpp -o projects\%PROJ%\Release\Server\server.exe
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo color 0A
 >>"%PROJ_DIR%\build_server.bat" echo echo === Build server %PROJ% complete ! ===
