@@ -1,4 +1,6 @@
 #pragma once
+#include <cctype>
+#include <cstdio>
 #include <string>
 #include <map>
 #include <functional>
@@ -94,8 +96,8 @@ protected:
 // Simple JSON parser
 inline JsonValue JsonValue::parse(const std::string &json) {
     std::string s = json;
-    while (!s.empty() && std::isspace(s[0])) s.erase(0, 1);
-    while (!s.empty() && std::isspace(s.back())) s.pop_back();
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s[0]))) s.erase(0, 1);
+    while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
 
     if (s.empty() || s == "null") return JsonValue();
     if (s[0] == '"') {
@@ -120,7 +122,7 @@ inline JsonValue JsonValue::parse(const std::string &json) {
             if (pos == std::string::npos) break;
             ++pos;
             // find value (until , or })
-            while (pos < s.length() && std::isspace(s[pos])) ++pos;
+            while (pos < s.length() && std::isspace(static_cast<unsigned char>(s[pos]))) ++pos;
             size_t valStart = pos;
             int depth = 0;
             while (pos < s.length()) {
@@ -131,8 +133,8 @@ inline JsonValue JsonValue::parse(const std::string &json) {
             }
             std::string valStr = s.substr(valStart, pos - valStart);
             // trim
-            while (!valStr.empty() && std::isspace(valStr[0])) valStr.erase(0, 1);
-            while (!valStr.empty() && std::isspace(valStr.back())) valStr.pop_back();
+            while (!valStr.empty() && std::isspace(static_cast<unsigned char>(valStr[0]))) valStr.erase(0, 1);
+            while (!valStr.empty() && std::isspace(static_cast<unsigned char>(valStr.back()))) valStr.pop_back();
             obj[key] = parse(valStr);
             if (pos < s.length() && s[pos] == ',') ++pos;
         }

@@ -3,6 +3,9 @@
 #include <iostream>
 #include <thread>
 #include <algorithm>
+#ifndef _WIN32
+#include <signal.h>
+#endif
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
@@ -15,6 +18,10 @@ bool Server::start(int port) {
         return false;
     }
 
+#ifndef _WIN32
+    signal(SIGPIPE, SIG_IGN);
+#endif
+
     listenSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (listenSocket == INVALID_SOCKET) {
         std::cerr << "Socket creation failed." << std::endl;
@@ -22,7 +29,7 @@ bool Server::start(int port) {
         return false;
     }
 
-    sockaddr_in serverAddr;
+    sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     serverAddr.sin_port = htons(port);
@@ -154,7 +161,7 @@ void Server::clientHandler(SOCKET client) {
                 std::string eventName = s.substr(6, space - 6);
                 std::string json = s.substr(space + 1);
                 // Trim trailing whitespace/newline
-                while (!json.empty() && (json.back() == '\n' || json.back() == '\r' || std::isspace(json.back()))) {
+                while (!json.empty() && (json.back() == '\n' || json.back() == '\r' || std::isspace(static_cast<unsigned char>(json.back())))) {
                     json.pop_back();
                 }
                 JsonValue data = JsonValue::parse(json);

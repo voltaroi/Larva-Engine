@@ -18,10 +18,13 @@ set CMAKE_DIR=%DEPS%\Compiler\cmake
 set CMAKE_BIN=%CMAKE_DIR%\bin\cmake.exe
 set NINJA_DIR=%DEPS%\Compiler\ninja
 set NINJA_EXE=%NINJA_DIR%\ninja.exe
+set ZIG_DIR=%DEPS%\Compiler\zig
+set ZIG_EXE=%ZIG_DIR%\zig.exe
 set OPENAL_DIR=%DEPS%\OpenAL
 set GLM_DIR=%DEPS%\glm
 mkdir "%DEPS%" 2>nul
 mkdir "%DEPS%\Compiler\clang" 2>nul
+mkdir "%DEPS%\Compiler\zig" 2>nul
 mkdir Release\Builder 2>nul
 
 REM =====================================================
@@ -40,6 +43,15 @@ if not exist "%DEPS%\Compiler\clang\bin\clang++.exe" (
     del clang.tar.xz
 ) else (
   echo [INFO] Clang already present, using existing install.
+)
+
+REM =====================================================
+REM === ZIG (LINUX CROSS-COMPILER) ===
+REM =====================================================
+if not exist "%ZIG_EXE%" (
+  call :InstallZig
+) else (
+  echo [INFO] Zig already present, using existing install.
 )
 
 REM =====================================================
@@ -175,6 +187,20 @@ copy /Y "ninja-temp\ninja.exe" "%NINJA_EXE%" >nul || goto ERROR
 
 del ninja.zip
 rmdir /S /Q ninja-temp
+exit /b 0
+
+:InstallZig
+echo [INFO] Installing Zig...
+rmdir /S /Q zig-temp 2>nul
+"C:\Windows\System32\curl.exe" -L --fail -o zig.zip ^
+  https://ziglang.org/download/0.15.2/zig-x86_64-windows-0.15.2.zip || goto ERROR
+
+powershell -Command "Expand-Archive zig.zip zig-temp" || goto ERROR
+mkdir "%ZIG_DIR%" 2>nul
+for /d %%D in (zig-temp\zig-*-windows-*) do xcopy /E /I /Y "%%D\*" "%ZIG_DIR%\" >nul || goto ERROR
+
+del zig.zip
+rmdir /S /Q zig-temp
 exit /b 0
 
 :InstallFreeGLUT

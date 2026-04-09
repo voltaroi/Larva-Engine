@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <string>
 #include <winsock2.h>
 #include <iostream>
@@ -23,5 +24,6 @@ public:
 
 private:
     SOCKET clientSocket = INVALID_SOCKET;
-    bool running = false;
+    std::atomic<bool> running{false};
+    std::thread receiveThread;
 };

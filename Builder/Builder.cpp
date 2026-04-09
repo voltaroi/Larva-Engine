@@ -9,6 +9,25 @@
 
 namespace fs = std::filesystem;
 
+static bool isLinuxTarget(const ProjectConfig& config) {
+    return config.targetPlatform == TargetPlatform::LINUX;
+}
+
+static std::string compilerPathForTarget(const ProjectConfig& config) {
+    if (isLinuxTarget(config)) {
+        return "Dependencies/Compiler/zig/zig-cxx.bat";
+    }
+    return "Dependencies/Compiler/clang/bin/clang++.exe";
+}
+
+static std::string outputPathForTarget(const ProjectConfig& config) {
+    fs::path outputPath = fs::path(config.outputDir) / config.outputName;
+    if (!isLinuxTarget(config)) {
+        outputPath += ".exe";
+    }
+    return outputPath.generic_string();
+}
+
 // Simple wildcard matcher supporting '*' and '?'
 static bool matchWildcard(const std::string& text, const std::string& pattern) {
     size_t t = 0, p = 0, star = std::string::npos, match = 0;
@@ -158,6 +177,15 @@ bool Builder::build(const ProjectConfig& config) {
         error("Aucun compilateur disponible!");
         return false;
     }
+
+    if (isLinuxTarget(config)) {
+        std::string targetCompiler = compilerPathForTarget(config);
+        if (!fs::exists(targetCompiler)) {
+            error("Le toolchain Linux n'est pas installe. Lance bootstrap_builder.bat.");
+            return false;
+        }
+        info("Target platform: Linux (cross-compilation via Zig)");
+    }
     
     // Créer les dossiers de sortie
     createDirectory(config.objectDir);
@@ -284,12 +312,7 @@ bool Builder::build(const ProjectConfig& config) {
     }
 
     // Linkage
-    std::string outputFile = config.outputDir + "/" + config.outputName;
-    if (m_compilerType == CompilerType::MSVC) {
-        outputFile += ".exe";
-    } else {
-        outputFile += ".exe";
-    }
+    std::string outputFile = outputPathForTarget(config);
 
     info("[LINK   ] " + outputFile);
     if (!linkObjects(objectFiles, outputFile, config)) {
@@ -323,27 +346,30 @@ bool Builder::compileFile(const std::string& sourceFile,
     // Arguments principaux (tout sur une seule ligne, options et valeurs ensemble)
     fs::path absSrc = fs::absolute(fs::path(sourceFile));
     fs::path absObj = fs::absolute(objPath);
-    rsp << "-c " << '"' << absSrc.generic_string() << '"' << "\r\n";
-    rsp << "-o " << '"' << absObj.generic_string() << '"' << "\r\n";
-    rsp << "-std=" << config.cppStandard << "\r\n";
+    rsp << "-c\n";
+    rsp << '"' << absSrc.generic_string() << '"' << "\n";
+    rsp << "-o\n";
+    rsp << '"' << absObj.generic_string() << '"' << "\n";
+    rsp << "-std=" << config.cppStandard << "\n";
     // Includes
     for (const auto& inc : config.includeDirs) {
         fs::path absInc = fs::absolute(fs::path(inc));
-        rsp << "-I" << '"' << absInc.generic_string() << '"' << "\r\n";
+        rsp << "-I\n";
+        rsp << '"' << absInc.generic_string() << '"' << "\n";
     }
     // Defines
     for (const auto& def : config.defines) {
-        rsp << "-D" << def << "\r\n";
+        rsp << "-D" << def << "\n";
     }
     // Options de build
     if (config.buildType == BuildType::DEBUG) {
-        rsp << "-g\r\n";
-        rsp << "-O0\r\n";
+        rsp << "-g\n";
+        rsp << "-O0\n";
     } else {
-        rsp << "-O2\r\n";
+        rsp << "-O2\n";
     }
     rsp.close();
-    std::string command = '"' + fs::absolute(fs::path(m_compilerPath)).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
+    std::string command = '"' + fs::absolute(fs::path(compilerPathForTarget(config))).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
     std::cout << "[DEBUG CMD] " << command << std::endl;
     bool result = executeCommand(command);
     return result;
@@ -364,35 +390,41 @@ bool Builder::linkObjects(const std::vector<std::string>& objectFiles,
     // Fichiers objets
     for (const auto& obj : objectFiles) {
         fs::path absObj = fs::absolute(fs::path(obj));
-        rsp << '"' << absObj.generic_string() << '"' << "\r\n";
+        rsp << '"' << absObj.generic_string() << '"' << "\n";
     }
     // Output
     fs::path absOut = fs::absolute(fs::path(outputFile));
-    rsp << "-o " << '"' << absOut.generic_string() << '"' << "\r\n";
-    // Forcer l'utilisation du linker LLVM
-    rsp << "-fuse-ld=lld\r\n";
+    rsp << "-o\n";
+    rsp << '"' << absOut.generic_string() << '"' << "\n";
+    if (!isLinuxTarget(config)) {
+        // Forcer l'utilisation du linker LLVM pour le build Windows
+        rsp << "-fuse-ld=lld\n";
+    }
     // Library dirs
     for (const auto& libDir : config.libraryDirs) {
         fs::path absLib = fs::absolute(fs::path(libDir));
-        rsp << "-L" << '"' << absLib.generic_string() << '"' << "\r\n";
+        rsp << "-L\n";
+        rsp << '"' << absLib.generic_string() << '"' << "\n";
     }
     // Libraries
     for (const auto& lib : config.libraries) {
         if (lib == "mingw32") continue; // Ne pas linker mingw32.lib
-        rsp << "-l" << lib << "\r\n";
+        rsp << "-l" << lib << "\n";
     }
-    // Type d'application
-    if (!config.isConsoleApp) {
-        rsp << "-mwindows\r\n";
-    } else {
-        rsp << "-mconsole\r\n";
+    // Type d'application Windows uniquement
+    if (!isLinuxTarget(config)) {
+        if (!config.isConsoleApp) {
+            rsp << "-mwindows\n";
+        } else {
+            rsp << "-mconsole\n";
+        }
     }
     // Linking statique
     if (config.staticLink) {
-        rsp << "-static\r\n";
+        rsp << "-static\n";
     }
     rsp.close();
-    std::string command = '"' + fs::absolute(fs::path(m_compilerPath)).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
+    std::string command = '"' + fs::absolute(fs::path(compilerPathForTarget(config))).make_preferred().string() + '"' + " @" + fs::absolute(fs::path(rspFile)).make_preferred().string();
     bool result = executeCommand(command);
     std::remove(rspFile.c_str());
     return result;
@@ -402,12 +434,13 @@ std::string Builder::buildCompileCommand(const std::string& sourceFile,
                                          const std::string& objectFile,
                                          const ProjectConfig& config) {
     std::ostringstream cmd;
+    std::string compilerPath = compilerPathForTarget(config);
     
     if (m_compilerType == CompilerType::GCC || m_compilerType == CompilerType::CLANG) {
         // Utiliser des chemins normalisés pour la ligne de commande
         fs::path srcPath(sourceFile);
         fs::path objPath(objectFile);
-        cmd << "\"" << m_compilerPath << "\" -c \"" 
+        cmd << "\"" << compilerPath << "\" -c \"" 
             << srcPath.generic_string() << "\" -o \"" << objPath.generic_string() << "\"";
         cmd << " -std=" << config.cppStandard;
         
@@ -458,9 +491,10 @@ std::string Builder::buildLinkCommand(const std::vector<std::string>& objectFile
                                       const std::string& outputFile,
                                       const ProjectConfig& config) {
     std::ostringstream cmd;
+    std::string compilerPath = compilerPathForTarget(config);
     
     if (m_compilerType == CompilerType::GCC || m_compilerType == CompilerType::CLANG) {
-        cmd << "\"" << m_compilerPath << "\"";
+        cmd << "\"" << compilerPath << "\"";
         // Fichiers objets
         for (const auto& obj : objectFiles) {
             fs::path objPath(obj);
@@ -480,10 +514,12 @@ std::string Builder::buildLinkCommand(const std::vector<std::string>& objectFile
         }
         
         // Type d'application
-        if (!config.isConsoleApp) {
-            cmd << " -mwindows";
-        } else {
-            cmd << " -mconsole";
+        if (!isLinuxTarget(config)) {
+            if (!config.isConsoleApp) {
+                cmd << " -mwindows";
+            } else {
+                cmd << " -mconsole";
+            }
         }
         
         // Linking statique
@@ -568,10 +604,16 @@ bool Builder::clean(const ProjectConfig& config) {
             success("[OK] Dossier objets supprime");
         }
         
-        std::string outputFile = config.outputDir + "/" + config.outputName + ".exe";
+        std::string outputFile = outputPathForTarget(config);
         if (fs::exists(outputFile)) {
             fs::remove(outputFile);
             success("[OK] Executable supprime");
+        }
+
+        std::string windowsOutputFile = config.outputDir + "/" + config.outputName + ".exe";
+        if (windowsOutputFile != outputFile && fs::exists(windowsOutputFile)) {
+            fs::remove(windowsOutputFile);
+            success("[OK] Ancien executable Windows supprime");
         }
     } catch (const std::exception& e) {
         error("Erreur nettoyage: " + std::string(e.what()));

@@ -1,5 +1,5 @@
 #pragma once
-#include <winsock2.h>
+#include "../SocketCompat.h"
 #include <vector>
 #include <string>
 #include <mutex>

@@ -15,6 +15,11 @@ enum class BuildType {
     RELEASE
 };
 
+enum class TargetPlatform {
+    WINDOWS,
+    LINUX
+};
+
 struct ProjectConfig {
     std::string name;
     std::string outputDir;
@@ -29,6 +34,7 @@ struct ProjectConfig {
     
     std::string cppStandard = "c++17";
     BuildType buildType = BuildType::RELEASE;
+    TargetPlatform targetPlatform = TargetPlatform::WINDOWS;
     bool isConsoleApp = false;
     bool staticLink = true;
     

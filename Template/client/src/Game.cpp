@@ -2,6 +2,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstdio>
+#include <list>
 #include <mutex>
 #include <tuple>
 #include "Engine/Graphics/Model.h"
@@ -62,7 +63,7 @@ struct PlayerCube
     }
 };
 
-std::vector<PlayerCube> players;
+std::list<PlayerCube> players;
 int myPlayerId = -1;
 std::mutex playersMutex;
 std::vector<std::string> incomingMessages;
@@ -75,8 +76,6 @@ float predictedY = 0.0f;
 
 void Game::init(int screenWidth, int screenHeight, WindowUtils &windowUtil)
 {
-    Game::connection();
-
     windowUtils = &windowUtil;
 
     // Load models
@@ -111,6 +110,8 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils &windowUtil)
 
     // Initialize chat system
     globalChat.init(client);
+
+    Game::connection();
 
     // Initialize input textbox
     if (!TBIp)
@@ -277,7 +278,8 @@ void Game::update()
                 }
                 if (!found)
                 {
-                    PlayerCube pc;
+                    players.emplace_back();
+                    PlayerCube &pc = players.back();
                     pc.id = id;
                     pc.r = (float)r;
                     pc.g = (float)g;
@@ -289,7 +291,6 @@ void Game::update()
                     pc.cube.setColor(r, g, b);
                     pc.cube.setScale(0.5f, 1.0f, 0.5f);
                     pc.cube.setPosition(pc.curX, -3.5f, pc.curY);
-                    players.push_back(pc);
                 }
             }
         }
@@ -346,9 +347,8 @@ void Game::update()
             iss >> id;
             {
                 std::lock_guard<std::mutex> lg(playersMutex);
-                players.erase(std::remove_if(players.begin(), players.end(), [&](const PlayerCube &pc)
-                                             { return pc.id == id; }),
-                              players.end());
+                players.remove_if([&](const PlayerCube &pc)
+                                  { return pc.id == id; });
             }
         }
     }
@@ -672,13 +672,14 @@ void Game::connection()
         isConnected = false;
     }
 
+    client.onMessage = [](const std::string &msg)
+    {
+        std::lock_guard<std::mutex> lg(incomingMessagesMutex);
+        incomingMessages.push_back(msg);
+    };
+
     if (client.connectToServer(ip, port))
     {
-        client.onMessage = [](const std::string &msg)
-        {
-            std::lock_guard<std::mutex> lg(incomingMessagesMutex);
-            incomingMessages.push_back(msg);
-        };
         client.sendMessage("HELLO");
         isConnected = true;
     }

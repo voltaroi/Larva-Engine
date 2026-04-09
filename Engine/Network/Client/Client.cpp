@@ -15,7 +15,10 @@ bool Client::connectToServer(const std::string &host, int port) {
     WSAStartup(MAKEWORD(2,2), &wsa);
 
     clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (clientSocket == INVALID_SOCKET) return false;
+    if (clientSocket == INVALID_SOCKET) {
+        WSACleanup();
+        return false;
+    }
 
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
@@ -24,13 +27,14 @@ bool Client::connectToServer(const std::string &host, int port) {
 
     if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) != 0) {
         closesocket(clientSocket);
+            WSACleanup();
         return false;
     }
 
     std::cout << "Connected to server " << host << ":" << port << " (socket=" << clientSocket << ")" << std::endl;
 
     running = true;
-    std::thread(&Client::receiveLoop, this).detach();
+        receiveThread = std::thread(&Client::receiveLoop, this);
     return true;
 }
 
@@ -46,7 +50,14 @@ void Client::sendEvent(const std::string &eventName, const JsonValue &data) {
 
 void Client::disconnect() {
     running = false;
-    closesocket(clientSocket);
+    SOCKET socketToClose = clientSocket;
+    if (socketToClose != INVALID_SOCKET) {
+        closesocket(socketToClose);
+    }
+    if (receiveThread.joinable() && receiveThread.get_id() != std::this_thread::get_id()) {
+        receiveThread.join();
+    }
+    clientSocket = INVALID_SOCKET;
     WSACleanup();
 }
 

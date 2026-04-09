@@ -184,6 +184,7 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo ^    exit /b 1
 >>"%PROJ_DIR%\build_client.bat" echo )
 
+rem Windows client build script
 >>"%PROJ_DIR%\build_client.bat" echo set OUT=projects\%PROJ%\Release\Client
 >>"%PROJ_DIR%\build_client.bat" echo set ASSETS_TEMP=projects\%PROJ%\Assets
 >>"%PROJ_DIR%\build_client.bat" echo if not exist "%%OUT%%" mkdir "%%OUT%%"
@@ -204,6 +205,7 @@ rem Build scripts
 >>"%PROJ_DIR%\build_client.bat" echo pause
 >>"%PROJ_DIR%\build_client.bat" echo popd
 
+rem Windows server build script
 >"%PROJ_DIR%\build_server.bat" echo @echo off
 >>"%PROJ_DIR%\build_server.bat" echo chcp 65001 ^>nul
 >>"%PROJ_DIR%\build_server.bat" echo setlocal
@@ -219,7 +221,11 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo ^        popd
 >>"%PROJ_DIR%\build_server.bat" echo ^        exit /b 1
 >>"%PROJ_DIR%\build_server.bat" echo ^    )
-
+>>"%PROJ_DIR%\build_server.bat" echo )
+>>"%PROJ_DIR%\build_server.bat" echo Release\Builder\larva-builder.exe projects\%PROJ%\configs\%PROJ%_server_config.json
+>>"%PROJ_DIR%\build_server.bat" echo if %%errorlevel%% neq 0 (
+>>"%PROJ_DIR%\build_server.bat" echo ^    color 0C
+>>"%PROJ_DIR%\build_server.bat" echo ^    echo.
 >>"%PROJ_DIR%\build_server.bat" echo ^    echo Server build failed %PROJ%
 >>"%PROJ_DIR%\build_server.bat" echo ^    color 07
 >>"%PROJ_DIR%\build_server.bat" echo ^    pause
@@ -234,6 +240,80 @@ rem Build scripts
 >>"%PROJ_DIR%\build_server.bat" echo echo.
 >>"%PROJ_DIR%\build_server.bat" echo pause
 >>"%PROJ_DIR%\build_server.bat" echo popd
+
+rem Linux server config JSON
+>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo {
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "name": "%PROJ% - Server Linux",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "outputDir": "projects/%PROJ%/Release/Server/Linux",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "objectDir": "projects/%PROJ%/obj/Server/Linux",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "outputName": "server",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "cppStandard": "c++17",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "buildType": "release",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "targetPlatform": "linux",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "isConsoleApp": true,
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "staticLink": true,
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo.
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "sourceFiles": [
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo         "projects/%PROJ%/server/src/*",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo         "Engine/Network/ServerChat.cpp",
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo         "Engine/Network/Server/Server.cpp"
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     ],
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo.
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "includeDirs": [
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo         "."
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     ],
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo.
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "libraryDirs": [],
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo.
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "libraries": [],
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo.
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo     "defines": []
+>>"%PROJ_DIR%\configs\%PROJ%_server_linux_config.json" echo }
+
+rem Linux server build script
+>"%PROJ_DIR%\build_server_linux.bat" echo @echo off
+>>"%PROJ_DIR%\build_server_linux.bat" echo chcp 65001 ^>nul
+>>"%PROJ_DIR%\build_server_linux.bat" echo setlocal
+>>"%PROJ_DIR%\build_server_linux.bat" echo set "ROOT=%%~dp0\..\.."
+>>"%PROJ_DIR%\build_server_linux.bat" echo pushd "%%ROOT%%"
+>>"%PROJ_DIR%\build_server_linux.bat" echo title Build %PROJ% Server Linux
+>>"%PROJ_DIR%\build_server_linux.bat" echo echo === Server build %PROJ% Linux ===
+>>"%PROJ_DIR%\build_server_linux.bat" echo echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo if not exist "Release\Builder\larva-builder.exe" ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo The builder is not installed. Launching bootstrap...
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    call bootstrap_builder.bat
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    if errorlevel 1 ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        popd
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        exit /b 1
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    )
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^)
+>>"%PROJ_DIR%\build_server_linux.bat" echo if not exist "Dependencies\Compiler\zig\zig.exe" ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo Linux cross-toolchain is not installed. Launching bootstrap...
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    call bootstrap_builder.bat
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    if errorlevel 1 ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        popd
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        exit /b 1
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    )
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^)
+>>"%PROJ_DIR%\build_server_linux.bat" echo Release\Builder\larva-builder.exe projects\%PROJ%\configs\%PROJ%_server_linux_config.json
+>>"%PROJ_DIR%\build_server_linux.bat" echo if errorlevel 1 ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    color 0C
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo Linux server build failed %PROJ%
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    color 07
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    pause
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    popd
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    exit /b 1
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^)
+>>"%PROJ_DIR%\build_server_linux.bat" echo echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo color 0A
+>>"%PROJ_DIR%\build_server_linux.bat" echo echo === Build server %PROJ% Linux complete ! ===
+>>"%PROJ_DIR%\build_server_linux.bat" echo color 07
+>>"%PROJ_DIR%\build_server_linux.bat" echo echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo pause
+>>"%PROJ_DIR%\build_server_linux.bat" echo popd
 
 color 0A
 echo Project "%PROJ%" created in projects\%PROJ%.

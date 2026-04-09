@@ -1,4 +1,6 @@
 #include "ProjectConfig.h"
+#include <algorithm>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -36,6 +38,13 @@ static std::vector<std::string> parseArray(const std::string& arrayContent) {
     }
     
     return result;
+}
+
+static std::string toLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
 }
 
 bool ProjectConfig::loadFromJson(const std::string& jsonPath) {
@@ -81,6 +90,9 @@ bool ProjectConfig::loadFromJson(const std::string& jsonPath) {
             cppStandard = value;
         } else if (key == "buildType") {
             buildType = (value == "debug" || value == "DEBUG") ? BuildType::DEBUG : BuildType::RELEASE;
+        } else if (key == "targetPlatform") {
+            std::string normalized = toLowerCopy(value);
+            targetPlatform = (normalized == "linux") ? TargetPlatform::LINUX : TargetPlatform::WINDOWS;
         } else if (key == "isConsoleApp") {
             isConsoleApp = (value == "true");
         } else if (key == "staticLink") {
