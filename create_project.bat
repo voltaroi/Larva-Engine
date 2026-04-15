@@ -289,7 +289,16 @@ rem Linux server build script
 >>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo.
 >>"%PROJ_DIR%\build_server_linux.bat" echo ^)
 >>"%PROJ_DIR%\build_server_linux.bat" echo if not exist "Dependencies\Compiler\zig\zig.exe" ^(
->>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo Linux cross-toolchain is not installed. Launching bootstrap...
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo Linux Zig executable is not installed. Launching bootstrap...
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    call bootstrap_builder.bat
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    if errorlevel 1 ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        popd
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^        exit /b 1
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    )
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo.
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^)
+>>"%PROJ_DIR%\build_server_linux.bat" echo if not exist "Dependencies\Compiler\zig\zig-cxx.bat" ^(
+>>"%PROJ_DIR%\build_server_linux.bat" echo ^    echo Linux Zig wrapper is not installed. Launching bootstrap...
 >>"%PROJ_DIR%\build_server_linux.bat" echo ^    call bootstrap_builder.bat
 >>"%PROJ_DIR%\build_server_linux.bat" echo ^    if errorlevel 1 ^(
 >>"%PROJ_DIR%\build_server_linux.bat" echo ^        popd

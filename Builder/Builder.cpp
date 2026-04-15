@@ -181,7 +181,7 @@ bool Builder::build(const ProjectConfig& config) {
     if (isLinuxTarget(config)) {
         std::string targetCompiler = compilerPathForTarget(config);
         if (!fs::exists(targetCompiler)) {
-            error("Le toolchain Linux n'est pas installe. Lance bootstrap_builder.bat.");
+            error("Le wrapper zig-cxx.bat Linux n'est pas installe. Lance bootstrap_builder.bat.");
             return false;
         }
         info("Target platform: Linux (cross-compilation via Zig)");

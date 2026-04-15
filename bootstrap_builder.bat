@@ -20,6 +20,7 @@ set NINJA_DIR=%DEPS%\Compiler\ninja
 set NINJA_EXE=%NINJA_DIR%\ninja.exe
 set ZIG_DIR=%DEPS%\Compiler\zig
 set ZIG_EXE=%ZIG_DIR%\zig.exe
+set ZIG_CXX=%ZIG_DIR%\zig-cxx.bat
 set OPENAL_DIR=%DEPS%\OpenAL
 set GLM_DIR=%DEPS%\glm
 mkdir "%DEPS%" 2>nul
@@ -53,6 +54,7 @@ if not exist "%ZIG_EXE%" (
 ) else (
   echo [INFO] Zig already present, using existing install.
 )
+call :EnsureZigCxxWrapper
 
 REM =====================================================
 REM === CMAKE ===
@@ -103,14 +105,33 @@ if not exist "%DEPS%\zlib\lib\zlibstatic.lib" (
 REM =====================================================
 REM === FREETYPE ===
 REM =====================================================
-if not exist "%DEPS%\freetype\lib\freetype.lib" if not exist "%DEPS%\freetype\lib\freetyped.lib" (
+set "FREETYPE_NEEDS_INSTALL=0"
+if exist "%DEPS%\freetype\lib\freetype.lib" (
+  "%DEPS%\Compiler\clang\bin\llvm-readobj.exe" --coff-directives "%DEPS%\freetype\lib\freetype.lib" | findstr /C:"msvcrtd.lib" >nul
+  if not errorlevel 1 set "FREETYPE_NEEDS_INSTALL=1"
+) else (
+  if exist "%DEPS%\freetype\lib\freetyped.lib" (
+    "%DEPS%\Compiler\clang\bin\llvm-readobj.exe" --coff-directives "%DEPS%\freetype\lib\freetyped.lib" | findstr /C:"msvcrtd.lib" >nul
+    if not errorlevel 1 set "FREETYPE_NEEDS_INSTALL=1"
+  ) else (
+    set "FREETYPE_NEEDS_INSTALL=1"
+  )
+)
+if "%FREETYPE_NEEDS_INSTALL%"=="1" (
   call :InstallFreetype
 )
 
 REM =====================================================
 REM === LIBSNDFILE ===
 REM =====================================================
-if not exist "%DEPS%\libsndfile\lib\sndfile.lib" (
+set "LIBSNDFILE_NEEDS_INSTALL=0"
+if exist "%DEPS%\libsndfile\lib\sndfile.lib" (
+  "%DEPS%\Compiler\clang\bin\llvm-readobj.exe" --coff-directives "%DEPS%\libsndfile\lib\sndfile.lib" | findstr /C:"msvcrtd.lib" >nul
+  if not errorlevel 1 set "LIBSNDFILE_NEEDS_INSTALL=1"
+) else (
+  set "LIBSNDFILE_NEEDS_INSTALL=1"
+)
+if "%LIBSNDFILE_NEEDS_INSTALL%"=="1" (
   call :InstallLibsndfile
 )
 
@@ -203,6 +224,19 @@ del zig.zip
 rmdir /S /Q zig-temp
 exit /b 0
 
+:EnsureZigCxxWrapper
+if exist "%ZIG_CXX%" (
+  exit /b 0
+)
+echo [INFO] Creating Zig Linux wrapper...
+(
+  echo @echo off
+  echo setlocal
+  echo "%%~dp0zig.exe" c++ -target x86_64-linux-musl %%*
+  echo exit /b %%errorlevel%%
+) > "%ZIG_CXX%" || goto ERROR
+exit /b 0
+
 :InstallFreeGLUT
 echo [INFO] Installing FreeGLUT...
 rmdir /S /Q freeglut-temp 2>nul
@@ -291,6 +325,9 @@ set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
   -DCMAKE_RC_COMPILER="%CLANG_RC%" ^
   -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
   -DBUILD_SHARED_LIBS=OFF ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_POLICY_DEFAULT_CMP0091=NEW ^
+  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
   -DFT_DISABLE_BZIP2=ON ^
   -DFT_DISABLE_PNG=ON ^
   -DFT_DISABLE_HARFBUZZ=ON ^
@@ -302,7 +339,7 @@ set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
 "%CMAKE_BIN%" --install "%FT_BUILD%" --config Release || goto ERROR
 
 REM === Normalize freetype lib names ===
-if exist "%DEPS%\freetype\lib\freetyped.lib" if not exist "%DEPS%\freetype\lib\freetype.lib" copy /Y "%DEPS%\freetype\lib\freetyped.lib" "%DEPS%\freetype\lib\freetype.lib" >nul
+if exist "%DEPS%\freetype\lib\freetype.lib" copy /Y "%DEPS%\freetype\lib\freetype.lib" "%DEPS%\freetype\lib\freetyped.lib" >nul
 if not exist "%DEPS%\freetype\lib\freetype.lib" goto ERROR
 
 del freetype-2.13.3.zip
@@ -360,6 +397,9 @@ set "CLANG_RC=%DEPS_FWD%/Compiler/clang/bin/llvm-rc.exe"
   -DCMAKE_RC_COMPILER="%CLANG_RC%" ^
   -DCMAKE_MAKE_PROGRAM="%NINJA_EXE%" ^
   -DBUILD_SHARED_LIBS=OFF ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_POLICY_DEFAULT_CMP0091=NEW ^
+  -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
   -DBUILD_PROGRAMS=OFF ^
   -DBUILD_EXAMPLES=OFF ^
   -DBUILD_TESTING=OFF ^
