@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <thread>
 #include <mutex>
 #include <chrono>
@@ -76,8 +77,11 @@ private:
     void createDirectory(const std::string& path);
     
      // Nouvelles fonctionnalités
-     void scanDependencies(const std::string& sourceFile, std::vector<std::string>& deps);
-     bool anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile);
+     // Parcourt récursivement les #include "..." (dossier du fichier puis dossiers d'include du projet)
+     void scanDependencies(const std::string& sourceFile, const std::vector<std::string>& includeDirs,
+                           std::vector<std::string>& deps, std::set<std::string>& visited);
+     bool anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile,
+                               const std::vector<std::string>& includeDirs);
      void showProgressBar(int current, int total);
     
      // Logging avec couleurs

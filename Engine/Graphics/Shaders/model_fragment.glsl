@@ -117,7 +117,7 @@ float esmShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
     return shadow;
 }
 
-void main()
+vec4 legacyShade()
 {
     vec4 texColor = texture(diffuseTexture, TexCoord);
     vec3 baseColor = hasTexture ? texColor.rgb : objectColor;
@@ -141,5 +141,148 @@ void main()
 
     float shadow = esmShadow(FragPosLightSpace, norm, lightDir);
     vec3 result = (ambient + (1.0 - shadow) * (diffuse + specular)) * baseColor;
-    FragColor = vec4(result, objectAlpha);
+    return vec4(result, objectAlpha);
+}
+
+// ============================================================================
+//  Environment lighting (enabled with Model::SetEnvironment)
+//  Keep cloudDensity() identical to the one used by custom game shaders so that
+//  cloud shadows line up on every surface.
+// ============================================================================
+uniform int uEnv;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform vec3 uSkyAmbient;
+uniform vec3 uGroundAmbient;
+uniform vec3 uZenithColor;
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+uniform float uCloudShadow;
+uniform float uCloudCoverage;
+uniform float uCloudScale;
+uniform float uCloudHeight;
+uniform vec2 uCloudOffset;
+uniform bool uLinearOutput;
+uniform float uSpecular;
+uniform float uShininess;
+uniform float uEmissive;
+
+float envHash(vec2 p)
+{
+    vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+float envNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(envHash(i), envHash(i + vec2(1.0, 0.0)), u.x),
+               mix(envHash(i + vec2(0.0, 1.0)), envHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float envFbm(vec2 p)
+{
+    float v = 0.0;
+    float a = 0.5;
+    mat2 m = mat2(1.6, 1.2, -1.2, 1.6);
+    for (int i = 0; i < 5; ++i)
+    {
+        v += a * envNoise(p);
+        p = m * p;
+        a *= 0.5;
+    }
+    return v;
+}
+
+float cloudDensity(vec2 xz)
+{
+    float n = envFbm(xz * uCloudScale + uCloudOffset);
+    return smoothstep(1.0 - uCloudCoverage, 1.0 - uCloudCoverage + 0.3, n);
+}
+
+float cloudLight(vec3 p)
+{
+    vec3 L = normalize(uSunDir);
+    vec2 xz = p.xz + L.xz * (uCloudHeight - p.y) / max(L.y, 0.1);
+    return 1.0 - uCloudShadow * cloudDensity(xz);
+}
+
+vec3 envSky(vec3 d)
+{
+    float h = clamp(d.y, 0.0, 1.0);
+    vec3 col = mix(uFogColor, uZenithColor, pow(h, 0.5));
+    if (d.y < 0.0)
+        col = mix(uFogColor, uGroundAmbient * 1.5, clamp(-d.y * 3.0, 0.0, 1.0));
+    return col;
+}
+
+float envShadow(vec4 lightSpacePos, vec3 N, vec3 L)
+{
+    vec3 c = lightSpacePos.xyz / lightSpacePos.w * 0.5 + 0.5;
+    if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0)
+        return 0.0;
+    vec2 moments = texture(shadowMap, c.xy).rg;
+    float slope = 1.0 - clamp(dot(N, L), 0.0, 1.0);
+    float d = c.z - (0.0008 + 0.0025 * slope);
+    float shadow = 0.0;
+    if (d > moments.x)
+    {
+        float variance = max(moments.y - moments.x * moments.x, 0.000004);
+        float diff = d - moments.x;
+        float pMax = variance / (variance + diff * diff);
+        pMax = clamp((pMax - 0.35) / 0.65, 0.0, 1.0); // réduit les fuites de lumière du VSM
+        shadow = 1.0 - pMax;
+    }
+    float edge = min(min(c.x, c.y), min(1.0 - c.x, 1.0 - c.y));
+    return shadow * smoothstep(0.0, 0.06, edge);
+}
+
+vec3 acesTonemap(vec3 x)
+{
+    return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+vec4 environmentShade()
+{
+    vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : objectColor;
+    vec3 albedo = pow(base, vec3(2.2));
+
+    vec3 N = normalize(Normal);
+    vec3 L = normalize(uSunDir);
+    vec3 V = normalize(viewPos - FragPos);
+    if (dot(N, V) < 0.0)
+        N = -N; // faces vues de dos (meshes ouverts)
+
+    float ndl = max(dot(N, L), 0.0);
+    float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
+
+    vec3 direct = uSunColor * ndl * visibility;
+    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5);
+
+    vec3 H = normalize(L + V);
+    float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
+    float spec = pow(max(dot(N, H), 0.0), uShininess) * (uShininess + 8.0) / 25.13;
+    vec3 specular = uSunColor * spec * uSpecular * mix(0.25, 1.0, fresnel) * ndl * visibility;
+    vec3 reflection = envSky(reflect(-V, N)) * fresnel * uSpecular * 0.4;
+
+    vec3 color = albedo * (direct + ambient) + specular + reflection + albedo * uEmissive * 4.0;
+
+    // Brouillard atmosphérique, teinté par le soleil
+    float dist = length(viewPos - FragPos);
+    float fog = 1.0 - exp(-dist * uFogDensity);
+    float sunAmount = pow(max(dot(-V, L), 0.0), 8.0);
+    vec3 fogColor = mix(uFogColor, uFogColor + uSunColor * 0.15, sunAmount);
+    color = mix(color, fogColor, fog);
+
+    if (!uLinearOutput)
+        color = pow(acesTonemap(color), vec3(1.0 / 2.2));
+    return vec4(color, objectAlpha);
+}
+
+void main()
+{
+    FragColor = (uEnv == 1) ? environmentShade() : legacyShade();
 }

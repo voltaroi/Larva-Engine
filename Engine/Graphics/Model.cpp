@@ -21,10 +21,15 @@ static GLuint g_modelProgram = 0;
 static GLuint g_shadowProgram = 0;
 static GLuint g_shadowMapFBO = 0;
 static GLuint g_shadowMapTexture = 0;
-static const int SHADOW_WIDTH = 1024;
-static const int SHADOW_HEIGHT = 1024;
+static const int SHADOW_WIDTH = 2048;
+static const int SHADOW_HEIGHT = 2048;
+static float g_shadowHalfSize = 20.0f;
+static float g_shadowNear = 1.0f;
+static float g_shadowFar = 50.0f;
+static Model::Environment g_environment;
 static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
+static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
 static bool g_shadowPass = false;
 static GLint g_prevViewport[4] = {0, 0, 0, 0};
 
@@ -45,6 +50,23 @@ struct ModelProgInfo
     GLint locDiffuseTexture = -1;
     GLint locShadowMap = -1;
     GLint locNormalMatrix = -1;
+    GLint locEnv = -1;
+    GLint locSunDir = -1;
+    GLint locSunColor = -1;
+    GLint locSkyAmbient = -1;
+    GLint locGroundAmbient = -1;
+    GLint locZenith = -1;
+    GLint locFogColor = -1;
+    GLint locFogDensity = -1;
+    GLint locCloudShadow = -1;
+    GLint locCloudCoverage = -1;
+    GLint locCloudScale = -1;
+    GLint locCloudHeight = -1;
+    GLint locCloudOffset = -1;
+    GLint locLinearOutput = -1;
+    GLint locSpecular = -1;
+    GLint locShininess = -1;
+    GLint locEmissive = -1;
 };
 static ModelProgInfo g_modelInfo;
 
@@ -243,7 +265,7 @@ static void initShadowMap()
     glGenTextures(1, &g_shadowMapTexture);
     glBindTexture(GL_TEXTURE_2D, g_shadowMapTexture);
     // Use RG16F (half float) moments texture for Variance Shadow Maps (VSM) to save memory/bandwidth
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_RG, GL_HALF_FLOAT, nullptr);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_RG, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -287,7 +309,7 @@ static void blurShadowMap()
     {
         glGenTextures(1, &g_shadowTempTexture);
         glBindTexture(GL_TEXTURE_2D, g_shadowTempTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_RG, GL_HALF_FLOAT, nullptr);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_RG, GL_FLOAT, nullptr);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -455,6 +477,23 @@ static GLuint createModelProgram()
     g_modelInfo.locDiffuseTexture = glGetUniformLocation(g_modelProgram, "diffuseTexture");
     g_modelInfo.locShadowMap = glGetUniformLocation(g_modelProgram, "shadowMap");
     g_modelInfo.locNormalMatrix = glGetUniformLocation(g_modelProgram, "normalMatrix");
+    g_modelInfo.locEnv = glGetUniformLocation(g_modelProgram, "uEnv");
+    g_modelInfo.locSunDir = glGetUniformLocation(g_modelProgram, "uSunDir");
+    g_modelInfo.locSunColor = glGetUniformLocation(g_modelProgram, "uSunColor");
+    g_modelInfo.locSkyAmbient = glGetUniformLocation(g_modelProgram, "uSkyAmbient");
+    g_modelInfo.locGroundAmbient = glGetUniformLocation(g_modelProgram, "uGroundAmbient");
+    g_modelInfo.locZenith = glGetUniformLocation(g_modelProgram, "uZenithColor");
+    g_modelInfo.locFogColor = glGetUniformLocation(g_modelProgram, "uFogColor");
+    g_modelInfo.locFogDensity = glGetUniformLocation(g_modelProgram, "uFogDensity");
+    g_modelInfo.locCloudShadow = glGetUniformLocation(g_modelProgram, "uCloudShadow");
+    g_modelInfo.locCloudCoverage = glGetUniformLocation(g_modelProgram, "uCloudCoverage");
+    g_modelInfo.locCloudScale = glGetUniformLocation(g_modelProgram, "uCloudScale");
+    g_modelInfo.locCloudHeight = glGetUniformLocation(g_modelProgram, "uCloudHeight");
+    g_modelInfo.locCloudOffset = glGetUniformLocation(g_modelProgram, "uCloudOffset");
+    g_modelInfo.locLinearOutput = glGetUniformLocation(g_modelProgram, "uLinearOutput");
+    g_modelInfo.locSpecular = glGetUniformLocation(g_modelProgram, "uSpecular");
+    g_modelInfo.locShininess = glGetUniformLocation(g_modelProgram, "uShininess");
+    g_modelInfo.locEmissive = glGetUniformLocation(g_modelProgram, "uEmissive");
     return g_modelProgram;
 }
 
@@ -1009,6 +1048,12 @@ void Model::draw()
 
     if (g_modelInfo.locNormalMatrix >= 0)
         glUniformMatrix3fv(g_modelInfo.locNormalMatrix, 1, GL_FALSE, glm::value_ptr(normalMatrix));
+    if (g_modelInfo.locSpecular >= 0)
+        glUniform1f(g_modelInfo.locSpecular, specular);
+    if (g_modelInfo.locShininess >= 0)
+        glUniform1f(g_modelInfo.locShininess, shininess);
+    if (g_modelInfo.locEmissive >= 0)
+        glUniform1f(g_modelInfo.locEmissive, emissive);
 
     for (auto &entry : batches)
     {
@@ -1112,7 +1157,7 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
     // cache
     g_cachedView = glm::make_mat4(view);
     g_cachedProjection = glm::make_mat4(projection);
-    g_cachedViewPos = glm::vec3(view[12], view[13], view[14]);
+    g_cachedViewPos = glm::vec3(glm::inverse(g_cachedView)[3]);
 
     GLuint program = createModelProgram();
     if (program == 0)
@@ -1137,6 +1182,28 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, g_shadowMapTexture);
         glUniform1i(g_modelInfo.locShadowMap, 1);
+        glActiveTexture(GL_TEXTURE0);
+    }
+
+    const Model::Environment &e = g_environment;
+    if (g_modelInfo.locEnv >= 0)
+        glUniform1i(g_modelInfo.locEnv, e.enabled ? 1 : 0);
+    if (e.enabled)
+    {
+        glm::vec3 sun = glm::normalize(glm::vec3(e.sunDir[0], e.sunDir[1], e.sunDir[2]));
+        glUniform3f(g_modelInfo.locSunDir, sun.x, sun.y, sun.z);
+        glUniform3fv(g_modelInfo.locSunColor, 1, e.sunColor);
+        glUniform3fv(g_modelInfo.locSkyAmbient, 1, e.skyAmbient);
+        glUniform3fv(g_modelInfo.locGroundAmbient, 1, e.groundAmbient);
+        glUniform3fv(g_modelInfo.locZenith, 1, e.zenithColor);
+        glUniform3fv(g_modelInfo.locFogColor, 1, e.fogColor);
+        glUniform1f(g_modelInfo.locFogDensity, e.fogDensity);
+        glUniform1f(g_modelInfo.locCloudShadow, e.cloudShadow);
+        glUniform1f(g_modelInfo.locCloudCoverage, e.cloudCoverage);
+        glUniform1f(g_modelInfo.locCloudScale, e.cloudScale);
+        glUniform1f(g_modelInfo.locCloudHeight, e.cloudHeight);
+        glUniform2fv(g_modelInfo.locCloudOffset, 1, e.cloudOffset);
+        glUniform1i(g_modelInfo.locLinearOutput, e.linearOutput ? 1 : 0);
     }
     glUseProgram(0);
 }
@@ -1148,15 +1215,20 @@ void Model::BeginShadowPass()
     initShadowMap();
 
     // Calculate light space matrix
-    glm::mat4 lightProjection = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, 1.0f, 50.0f);
-    glm::mat4 lightView = glm::lookAt(g_lightPos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 lightProjection = glm::ortho(-g_shadowHalfSize, g_shadowHalfSize, -g_shadowHalfSize, g_shadowHalfSize, g_shadowNear, g_shadowFar);
+    glm::mat4 lightView = glm::lookAt(g_lightPos, g_lightTarget, glm::vec3(0.0f, 1.0f, 0.0f));
     g_lightSpaceMatrix = lightProjection * lightView;
 
     // Render to shadow map
     glGetIntegerv(GL_VIEWPORT, g_prevViewport);
     glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
     glBindFramebuffer(GL_FRAMEBUFFER, g_shadowMapFBO);
-    glClear(GL_DEPTH_BUFFER_BIT);
+    // Moments of the far plane (depth = 1): texels not covered by any caster receive no shadow
+    GLfloat previousClear[4];
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClear);
+    glClearColor(1.0f, 1.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClearColor(previousClear[0], previousClear[1], previousClear[2], previousClear[3]);
 
     // Use shadow shader
     GLuint shadowProg = createShadowProgram();
@@ -1185,4 +1257,69 @@ void Model::EndShadowPass()
 void Model::SetLightPosition(float x, float y, float z)
 {
     g_lightPos = glm::vec3(x, y, z);
+}
+
+void Model::SetLightTarget(float x, float y, float z)
+{
+    g_lightTarget = glm::vec3(x, y, z);
+}
+
+bool Model::createFromData(const std::vector<SimpleVertex> &verts, const std::vector<unsigned int> &indices)
+{
+    for (auto &m : meshes)
+    {
+        if (m.VAO != 0)
+            glDeleteVertexArrays(1, &m.VAO);
+        if (m.VBO != 0)
+            glDeleteBuffers(1, &m.VBO);
+        if (m.EBO != 0)
+            glDeleteBuffers(1, &m.EBO);
+    }
+    meshes.clear();
+
+    if (verts.empty() || indices.empty())
+        return false;
+
+    Mesh m;
+    m.verts = verts;
+    m.indices = indices;
+    meshes.push_back(std::move(m));
+    setupMeshBuffers(meshes.back());
+    return true;
+}
+
+void Model::SetEnvironment(const Environment &env)
+{
+    g_environment = env;
+}
+
+const Model::Environment &Model::GetEnvironment()
+{
+    return g_environment;
+}
+
+void Model::SetShadowArea(float halfSize, float nearPlane, float farPlane)
+{
+    g_shadowHalfSize = halfSize;
+    g_shadowNear = nearPlane;
+    g_shadowFar = farPlane;
+}
+
+unsigned int Model::GetShadowMapTexture()
+{
+    return g_shadowMapTexture;
+}
+
+void Model::GetLightSpaceMatrix(float out[16])
+{
+    const float *m = glm::value_ptr(g_lightSpaceMatrix);
+    for (int i = 0; i < 16; ++i)
+        out[i] = m[i];
+}
+
+void Model::setMaterial(float specularStrength, float shininessValue, float emissiveValue)
+{
+    specular = specularStrength;
+    shininess = shininessValue;
+    emissive = emissiveValue;
 }

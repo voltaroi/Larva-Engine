@@ -25,11 +25,34 @@ bool Client::connectToServer(const std::string &host, int port) {
     serverAddr.sin_port = htons(port);
     serverAddr.sin_addr.s_addr = inet_addr(host.c_str());
 
-    if (connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) != 0) {
+    // Non-blocking connect with a timeout, so a wrong address does not freeze the caller for ~20s
+    u_long nonBlocking = 1;
+    ioctlsocket(clientSocket, FIONBIO, &nonBlocking);
+    connect(clientSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
+
+    fd_set writeSet, errorSet;
+    FD_ZERO(&writeSet);
+    FD_ZERO(&errorSet);
+    FD_SET(clientSocket, &writeSet);
+    FD_SET(clientSocket, &errorSet);
+    timeval timeout{3, 0};
+    int ready = select(0, nullptr, &writeSet, &errorSet, &timeout);
+
+    int socketError = 0;
+    int errorLen = sizeof(socketError);
+    getsockopt(clientSocket, SOL_SOCKET, SO_ERROR, (char *)&socketError, &errorLen);
+    if (ready <= 0 || FD_ISSET(clientSocket, &errorSet) || socketError != 0) {
         closesocket(clientSocket);
-            WSACleanup();
+        clientSocket = INVALID_SOCKET;
+        WSACleanup();
         return false;
     }
+
+    nonBlocking = 0;
+    ioctlsocket(clientSocket, FIONBIO, &nonBlocking);
+
+    int noDelay = 1;
+    setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, (const char *)&noDelay, sizeof(noDelay));
 
     std::cout << "Connected to server " << host << ":" << port << " (socket=" << clientSocket << ")" << std::endl;
 
@@ -111,6 +134,7 @@ void Client::receiveLoop() {   // UNE SEULE définition
         }
     }
 
+    running = false;
     if (!pending.empty()) {
         std::cout << "[Server leftover] " << pending << std::endl;
     }

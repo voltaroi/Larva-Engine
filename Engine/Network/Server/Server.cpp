@@ -62,6 +62,8 @@ bool Server::start(int port) {
         while (running) {
             SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
             if (clientSocket != INVALID_SOCKET) {
+                int noDelay = 1;
+                setsockopt(clientSocket, IPPROTO_TCP, TCP_NODELAY, (const char *)&noDelay, sizeof(noDelay));
                 std::thread(&Server::clientHandler, this, clientSocket).detach();
             } else {
                 std::cerr << "accept failed: " << WSAGetLastError() << std::endl;
@@ -147,38 +149,29 @@ void Server::clientHandler(SOCKET client) {
     }
 
     char buffer[512];
+    std::string pending;
     while (true) {
         int bytes = recv(client, buffer, sizeof(buffer) - 1, 0);
         if (bytes <= 0) break;
-        buffer[bytes] = '\0';
-        std::string s(buffer);
-        // std::cout << "Received from client: " << s << std::endl;
+        pending.append(buffer, bytes);
 
-        // Parse EVENT messages: EVENT <name> <json>
-        if (s.rfind("EVENT ", 0) == 0) {
-            size_t space = s.find(' ', 6);
-            if (space != std::string::npos) {
-                std::string eventName = s.substr(6, space - 6);
-                std::string json = s.substr(space + 1);
-                // Trim trailing whitespace/newline
-                while (!json.empty() && (json.back() == '\n' || json.back() == '\r' || std::isspace(static_cast<unsigned char>(json.back())))) {
-                    json.pop_back();
-                }
-                JsonValue data = JsonValue::parse(json);
-                handleEvent(eventName, data);
+        // TCP is a stream: several messages can arrive in one recv, or one message across several.
+        // Messages are separated by '\n'.
+        size_t pos;
+        while ((pos = pending.find('\n')) != std::string::npos) {
+            std::string line = pending.substr(0, pos);
+            pending.erase(0, pos + 1);
+            while (!line.empty() && std::isspace(static_cast<unsigned char>(line.back()))) {
+                line.pop_back();
             }
-            continue;
+            if (!line.empty()) {
+                handleLine(myId, line);
+            }
         }
 
-        if (s.rfind("INP ", 0) == 0) {
-            int seq = 0;
-            float dx = 0.0f, dz = 0.0f;
-            std::string rest = s.substr(4);
-            std::sscanf(rest.c_str(), "%d %f %f", &seq, &dx, &dz);
-
-            if (onInput) {
-                onInput(myId, seq, dx, dz);
-            }
+        // Protection against a client that never sends '\n'
+        if (pending.size() > 64 * 1024) {
+            pending.clear();
         }
     }
 
@@ -203,6 +196,36 @@ void Server::clientHandler(SOCKET client) {
 
     closesocket(client);
     std::cout << "Client disconnected id=" << leavingId << std::endl;
+}
+
+void Server::handleLine(int clientId, const std::string &s) {
+    // Parse EVENT messages: EVENT <name> <json>
+    if (s.rfind("EVENT ", 0) == 0) {
+        size_t space = s.find(' ', 6);
+        if (space != std::string::npos) {
+            std::string eventName = s.substr(6, space - 6);
+            std::string json = s.substr(space + 1);
+            JsonValue data = JsonValue::parse(json);
+            handleEvent(eventName, data);
+        }
+        return;
+    }
+
+    if (s.rfind("INP ", 0) == 0) {
+        int seq = 0;
+        float dx = 0.0f, dz = 0.0f;
+        std::string rest = s.substr(4);
+        std::sscanf(rest.c_str(), "%d %f %f", &seq, &dx, &dz);
+
+        if (onInput) {
+            onInput(clientId, seq, dx, dz);
+        }
+        return;
+    }
+
+    if (onMessage) {
+        onMessage(clientId, s);
+    }
 }
 
 void Server::stop() {

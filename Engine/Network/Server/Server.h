@@ -21,10 +21,13 @@ public:
     using ConnectCallback = std::function<void(int clientId)>;
     using InputCallback = std::function<void(int clientId, int seq, float dx, float dz)>;
     using DisconnectCallback = std::function<void(int clientId)>;
+    // Any line that is neither an EVENT nor an INP message
+    using MessageCallback = std::function<void(int clientId, const std::string &line)>;
 
     void setOnConnect(ConnectCallback cb) { onConnect = std::move(cb); }
     void setOnInput(InputCallback cb) { onInput = std::move(cb); }
     void setOnDisconnect(DisconnectCallback cb) { onDisconnect = std::move(cb); }
+    void setOnMessage(MessageCallback cb) { onMessage = std::move(cb); }
     
     // Chat management
     ServerChat* getChat() { return serverChat; }
@@ -48,6 +51,8 @@ private:
     ConnectCallback onConnect;
     InputCallback onInput;
     DisconnectCallback onDisconnect;
+    MessageCallback onMessage;
 
     void clientHandler(SOCKET client);
+    void handleLine(int clientId, const std::string &line);
 };

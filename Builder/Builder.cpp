@@ -214,7 +214,7 @@ bool Builder::build(const ProjectConfig& config) {
         std::string objectFile = objPath.generic_string();
         objectFiles.push_back(objectFile);
         // Vérifier si recompilation nécessaire
-        if (needsRecompile(sourceFile, objectFile) || anyDependencyChanged(sourceFile, objectFile)) {
+        if (needsRecompile(sourceFile, objectFile) || anyDependencyChanged(sourceFile, objectFile, config.includeDirs)) {
             // Normaliser le chemin source pour la ligne de commande
             fs::path srcPath(sourceFile);
             filesToCompile.push_back({srcPath.generic_string(), objectFile});
@@ -666,35 +666,44 @@ void Builder::error(const std::string& message) {
         SetConsoleTextAttribute(hConsole, 7); // Blanc par défaut
     }
 
-    void Builder::scanDependencies(const std::string& sourceFile, std::vector<std::string>& deps) {
+    void Builder::scanDependencies(const std::string& sourceFile, const std::vector<std::string>& includeDirs,
+                                   std::vector<std::string>& deps, std::set<std::string>& visited) {
         std::ifstream file(sourceFile);
         if (!file.is_open()) return;
-    
+
         std::string line;
         while (std::getline(file, line)) {
             // Chercher les #include "..."
             size_t includePos = line.find("#include");
-            if (includePos != std::string::npos) {
-                size_t quoteStart = line.find('"', includePos);
-                if (quoteStart != std::string::npos) {
-                    size_t quoteEnd = line.find('"', quoteStart + 1);
-                    if (quoteEnd != std::string::npos) {
-                        std::string headerFile = line.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
-                    
-                        // Construire le chemin complet
-                        fs::path sourcePath(sourceFile);
-                        fs::path headerPath = sourcePath.parent_path() / headerFile;
-                    
-                        if (fs::exists(headerPath)) {
-                            deps.push_back(headerPath.string());
-                        }
-                    }
+            if (includePos == std::string::npos) continue;
+            size_t quoteStart = line.find('"', includePos);
+            if (quoteStart == std::string::npos) continue;
+            size_t quoteEnd = line.find('"', quoteStart + 1);
+            if (quoteEnd == std::string::npos) continue;
+            std::string headerFile = line.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
+            // Même règle que le compilateur : dossier du fichier, puis dossiers d'include du projet
+            std::vector<fs::path> candidates;
+            candidates.push_back(fs::path(sourceFile).parent_path() / headerFile);
+            for (const auto& dir : includeDirs)
+                candidates.push_back(fs::path(dir) / headerFile);
+
+            for (const auto& candidate : candidates) {
+                std::error_code ec;
+                if (!fs::exists(candidate, ec)) continue;
+                std::string key = fs::weakly_canonical(candidate, ec).generic_string();
+                if (visited.insert(key).second) {
+                    deps.push_back(candidate.string());
+                    // Un en-tête peut en inclure d'autres : il faut suivre toute la chaîne
+                    scanDependencies(candidate.string(), includeDirs, deps, visited);
                 }
+                break;
             }
         }
     }
 
-    bool Builder::anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile) {
+    bool Builder::anyDependencyChanged(const std::string& sourceFile, const std::string& objectFile,
+                                       const std::vector<std::string>& includeDirs) {
         if (!fs::exists(objectFile)) {
             return true;
         }
@@ -702,7 +711,8 @@ void Builder::error(const std::string& message) {
         // Scanner les dépendances si pas déjà en cache
         if (m_dependencies.find(sourceFile) == m_dependencies.end()) {
             std::vector<std::string> deps;
-            scanDependencies(sourceFile, deps);
+            std::set<std::string> visited;
+            scanDependencies(sourceFile, includeDirs, deps, visited);
             m_dependencies[sourceFile] = deps;
         }
     

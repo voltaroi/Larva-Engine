@@ -16,6 +16,8 @@ public:
     void sendMessage(const std::string& msg);
     void sendEvent(const std::string &eventName, const JsonValue &data) override;
     void disconnect();
+    // False once the connection has been closed (by us or by the server)
+    bool isConnected() const { return running; }
 
     void receiveLoop();
 
