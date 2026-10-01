@@ -25,6 +25,21 @@ public:
     // Boîte posée au sol (y = 0) le long du segment a -> b : épaisseur 2 * halfThick, hauteur height
     void segmentBox(float ax, float az, float bx, float bz, float halfThick, float height);
 
+    // Cône vertical (sans fond) : base centrée en (cx, baseY, cz), pointe à baseY + height
+    void cone(float cx, float baseY, float cz, float radius, float height, int segments = 10);
+
+    // Boîte centrée en (cx, cy, cz), demi-dimensions hx, hy, hz
+    void box(float cx, float cy, float cz, float hx, float hy, float hz);
+
+    // Sphère (ou ellipsoïde) centrée en (cx, cy, cz)
+    void sphere(float cx, float cy, float cz, float rx, float ry, float rz, int rings = 8, int segments = 12);
+
+    // Tore centré à l'origine dans le plan XY (axe Z) : volant, pneu, anneau...
+    void torus(float majorRadius, float minorRadius, int segments = 24, int sides = 8);
+
+    // Tube (cylindre) du point a au point b, fermé aux deux bouts si caps
+    void tube(const float a[3], const float b[3], float radius, int sides = 8, bool caps = true);
+
     // Crée les buffers GPU du modèle (transformation neutre) avec une couleur unie
     void uploadTo(Model &model, float r, float g, float b) const;
 };

@@ -975,10 +975,22 @@ void Model::addRotation(float x, float y, float z)
     rotZ += z;
 }
 
+void Model::setParentTransform(const float matrix[16])
+{
+    for (int i = 0; i < 16; ++i)
+        parentMatrix[i] = matrix[i];
+    hasParent = true;
+}
+
+void Model::clearParentTransform()
+{
+    hasParent = false;
+}
+
 void Model::draw()
 {
     // Create model matrix
-    glm::mat4 model = glm::mat4(1.0f);
+    glm::mat4 model = hasParent ? glm::make_mat4(parentMatrix) : glm::mat4(1.0f);
     model = glm::translate(model, glm::vec3(posX, posY, posZ));
     model = glm::rotate(model, glm::radians(rotX), glm::vec3(1.0f, 0.0f, 0.0f));
     model = glm::rotate(model, glm::radians(rotY), glm::vec3(0.0f, 1.0f, 0.0f));

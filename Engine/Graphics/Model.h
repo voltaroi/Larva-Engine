@@ -46,6 +46,10 @@ public:
     void clearColorOverride();
     void setRotation(float x, float y, float z);
     void addRotation(float x, float y, float z);
+    // Transformation parente (colonne majeure) appliquée avant position / rotation / échelle :
+    // pour dessiner les pièces d'un objet composé dans son repère local (voiture inclinée sur une pente...)
+    void setParentTransform(const float matrix[16]);
+    void clearParentTransform();
     
     static void BeginShadowPass();
     static void EndShadowPass();
@@ -82,6 +86,8 @@ public:
     float posX, posY, posZ;
     float scaleX, scaleY, scaleZ;
     float rotX, rotY, rotZ;
+    bool hasParent = false;
+    float parentMatrix[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     
     float specular = 0.25f;
     float shininess = 32.0f;

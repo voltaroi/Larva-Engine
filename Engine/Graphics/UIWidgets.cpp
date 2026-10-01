@@ -1,5 +1,6 @@
 #include "UIWidgets.h"
 #include "UI.h"
+#include "Draw2D.h"
 #include <algorithm>
 #include <cmath>
 
@@ -61,6 +62,14 @@ bool UIWidgets::button(const std::string &label, float x, float y, float w, floa
     UI::renderText(label, x + (w - tw) / 2.0f, y + h / 2.0f - 8.0f, scale);
     UI::setColor(1.0f, 1.0f, 1.0f, 1.0f);
     return hover && released;
+}
+
+bool UIWidgets::arrowButton(int dir, float x, float y, float w, float h, bool enabled)
+{
+    bool hit = button("", x, y, w, h, enabled);
+    Draw2D::setColor(1.0f, 1.0f, 1.0f, enabled ? 1.0f : 0.35f);
+    Draw2D::arrow(x + w * 0.5f, y + h * 0.5f, std::min(w, h) * 0.22f, (float)dir, 0.0f);
+    return hit;
 }
 
 bool UIWidgets::slider(const std::string &label, float &value, float x, float y, float w, float labelWidth)
