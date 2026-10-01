@@ -65,8 +65,11 @@ rem Client config JSON
 >>%PROJ_DIR%\configs\%PROJ%_client_config.json echo.
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "sourceFiles": [
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "projects/%PROJ%/client/src/*",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Core/*",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Physics/*",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Audio/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/*",
->>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Network/Client/Client.cpp"
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Network/Client/*"
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     ],
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     "includeDirs": [

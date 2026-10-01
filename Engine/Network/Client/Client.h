@@ -5,6 +5,8 @@
 #include <iostream>
 #include <thread>
 #include <functional>
+#include <mutex>
+#include <vector>
 #include "../EventEmitter.h"
 
 class Client : public EventEmitter {
@@ -21,10 +23,20 @@ public:
 
     void receiveLoop();
 
-    // Callback when a raw message is received from the server
+    // Callback when a raw message is received from the server (called on the receive thread)
     std::function<void(const std::string&)> onMessage;
 
+    // Message queue: when enabled, raw lines not consumed by onMessage are stored and can be
+    // read from the game loop (main thread) with pollMessages()
+    void enableMessageQueue(bool enabled = true) { queueEnabled = enabled; }
+    std::vector<std::string> pollMessages();
+    void clearMessages();
+
 private:
+    std::atomic<bool> queueEnabled{false};
+    std::mutex queueMutex;
+    std::vector<std::string> queue;
+
     SOCKET clientSocket = INVALID_SOCKET;
     std::atomic<bool> running{false};
     std::thread receiveThread;

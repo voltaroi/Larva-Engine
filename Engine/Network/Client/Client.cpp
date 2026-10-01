@@ -84,7 +84,19 @@ void Client::disconnect() {
     WSACleanup();
 }
 
-void Client::receiveLoop() {   // UNE SEULE définition
+std::vector<std::string> Client::pollMessages() {
+    std::vector<std::string> lines;
+    std::lock_guard<std::mutex> lock(queueMutex);
+    lines.swap(queue);
+    return lines;
+}
+
+void Client::clearMessages() {
+    std::lock_guard<std::mutex> lock(queueMutex);
+    queue.clear();
+}
+
+void Client::receiveLoop() {
     char buffer[512];
     std::string pending;
     using clock = std::chrono::steady_clock;
@@ -131,6 +143,10 @@ void Client::receiveLoop() {   // UNE SEULE définition
             }
 
             if (onMessage) onMessage(line);
+            else if (queueEnabled) {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                queue.push_back(line);
+            }
         }
     }
 
