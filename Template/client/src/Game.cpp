@@ -6,6 +6,7 @@
 #include <mutex>
 #include <tuple>
 #include "Engine/Graphics/Model.h"
+#include "Engine/Scene/LevelScene.h"
 
 static const float NETWORK_CAMERA_HEIGHT = -3.0f;
 
@@ -28,8 +29,8 @@ bool inputJumpGlobal = false;
 
 bool isConnected = false;
 
-Model cubeModel1, cubeModel2, cubeModel3, floorModel;
-Model triangleModel, sphereModel;
+// Level edited with the Larva Editor (Release/Editor/larva-editor.exe)
+LevelScene level;
 
 Camera player{};
 
@@ -78,25 +79,17 @@ void Game::init(int screenWidth, int screenHeight, WindowUtils &windowUtil)
 {
     windowUtils = &windowUtil;
 
-    // Load models
-    cubeModel1.loadFromFile("Models/cube.fbx");
-    cubeModel2.loadFromFile("Models/cube.fbx");
-    cubeModel3.loadFromFile("Models/cube.fbx");
-    cubeModel3.setColorRGBA(1.0f, 0.0f, 0.0, 0.5f);
-    floorModel.loadFromFile("Models/cube.fbx");
-    triangleModel.loadFromFile("Models/triangle.fbx");
-    sphereModel.loadFromFile("Models/sphere.fbx");
-    cubeModel1.setScale(1, 1, 0.2);
-    cubeModel1.setPosition(0.0, -4.0, 15.0);
-    cubeModel2.setPosition(2.0, -2.0, 15.0);
-    cubeModel3.setPosition(4.0, -2.0, 15.0);
-    floorModel.setPosition(0.0, -5.0, 0.0);
-    floorModel.setScale(50, 1, 50);
-
-    triangleModel.setPosition(0.0, -2.0, 0.0);
-    sphereModel.setPosition(4.0, -2.0, 0.0);
+    // Load the level (Assets/Levels/Main.lvl, packed in game.pak by build_client.bat)
+    if (!level.load("Levels/Main.lvl"))
+    {
+        std::cerr << "Warning: " << level.lastError() << std::endl;
+    }
 
     player.init(screenWidth, screenHeight);
+    if (const LevelEntity *start = level.level.playerStart())
+    {
+        player.setPosition(start->position[0], start->position[1], start->position[2]);
+    }
 
     // Load font for UI text rendering
     try
@@ -183,13 +176,9 @@ void Game::display()
     player.networkUpdate();
     player.updateView();
 
+    level.applyLighting();
     Model::BeginShadowPass();
-    cubeModel1.draw();
-    cubeModel2.draw();
-    cubeModel3.draw();
-    floorModel.draw();
-    triangleModel.draw();
-    sphereModel.draw();
+    level.draw();
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
@@ -207,12 +196,7 @@ void Game::display()
     glGetFloatv(GL_PROJECTION_MATRIX, projectionMatrix);
     Model::SetFrameUniforms(viewMatrix, projectionMatrix);
 
-    cubeModel1.draw();
-    cubeModel2.draw();
-    cubeModel3.draw();
-    triangleModel.draw();
-    sphereModel.draw();
-    floorModel.draw();
+    level.draw();
 
     {
         std::lock_guard<std::mutex> lg(playersMutex);
@@ -352,10 +336,20 @@ void Game::update()
             }
         }
     }
-    cubeModel2.addRotation(1.0, 1.0, 1.0);
-    cubeModel3.addRotation(1.0, 1.0, 1.0);
-    triangleModel.addRotation(0.0, 1.0, 0.0);
-    sphereModel.addRotation(1.0, 0.0, 0.0);
+    // Level entities are plain data: find them by name (or tag) and change them
+    for (LevelEntity &e : level.level.entities)
+    {
+        if (e.tag == "spin")
+        {
+            e.rotation[0] += 1.0f;
+            e.rotation[1] += 1.0f;
+            e.rotation[2] += 1.0f;
+        }
+    }
+    if (LevelEntity *triangle = level.level.find("Triangle"))
+        triangle->rotation[1] += 1.0f;
+    if (LevelEntity *sphere = level.level.find("Sphere"))
+        sphere->rotation[0] += 1.0f;
 
     player.networkUpdate();
 

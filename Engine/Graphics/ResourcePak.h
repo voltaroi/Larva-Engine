@@ -132,6 +132,18 @@ public:
     }
 
     /**
+     * Paths of the files in the PAK starting with prefix (e.g. "Levels/")
+     */
+    static std::vector<std::string> GetFiles(const std::string& prefix = "") {
+        std::vector<std::string> result;
+        for (const auto& entry : entries) {
+            if (entry.first.compare(0, prefix.size(), prefix) == 0)
+                result.push_back(entry.first);
+        }
+        return result;
+    }
+
+    /**
      * List all files in PAK (for debugging)
      */
     static void ListFiles() {

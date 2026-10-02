@@ -1,0 +1,61 @@
+{
+    "name": "Larva Editor",
+    "outputDir": "Release/Editor",
+    "objectDir": "Release/Editor/obj",
+    "outputName": "larva-editor",
+    "cppStandard": "c++17",
+    "buildType": "release",
+    "isConsoleApp": true,
+    "staticLink": true,
+
+    "sourceFiles": [
+        "Editor/*",
+        "Engine/Scene/*",
+        "Engine/Graphics/*",
+        "Engine/Network/Client/Client.cpp"
+    ],
+
+    "includeDirs": [
+        ".",
+        "Dependencies/glew/include",
+        "Dependencies/assimp/include",
+        "Dependencies/libsndfile/include",
+        "Dependencies/OpenAL/include",
+        "Dependencies/freeglut/include",
+        "Dependencies/glm/include",
+        "Dependencies/freetype/include",
+        "Dependencies/freetype/include/freetype2"
+    ],
+
+    "libraryDirs": [
+        "Dependencies/glew/lib",
+        "Dependencies/assimp/lib",
+        "Dependencies/libsndfile/lib",
+        "Dependencies/OpenAL/lib",
+        "Dependencies/freeglut/lib",
+        "Dependencies/freetype/lib",
+        "Dependencies/zlib/lib"
+    ],
+
+    "libraries": [
+        "mingw32",
+        "freeglut_static",
+        "glew32",
+        "opengl32",
+        "glu32",
+        "gdi32",
+        "user32",
+        "assimp",
+        "sndfile",
+        "OpenAL32",
+        "freetype",
+        "ws2_32",
+        "winmm",
+        "zlibstatic"
+    ],
+
+    "defines": [
+        "FREEGLUT_STATIC",
+        "GLEW_STATIC"
+    ]
+}

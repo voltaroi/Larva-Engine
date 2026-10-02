@@ -69,6 +69,7 @@ rem Client config JSON
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Physics/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Audio/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Graphics/*",
+>>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Scene/*",
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo         "Engine/Network/Client/*"
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo     ],
 >>"%PROJ_DIR%\configs\%PROJ%_client_config.json" echo(

@@ -1,0 +1,66 @@
+larva_level 1
+name Main
+sky 0.5 0.7 1
+light_position 5 10 5
+light_target 0 0 0
+shadow_area 20
+
+entity Floor
+type mesh
+model Models/cube.fbx
+position 0 -5 0
+rotation 0 0 0
+scale 50 1 50
+collision 1
+end
+
+entity PlayerStart
+type player_start
+position 0 -3 0
+rotation 0 0 0
+scale 1 1 1
+end
+
+entity Cube1
+type mesh
+model Models/cube.fbx
+position 0 -4 15
+rotation 0 0 0
+scale 1 1 0.2
+collision 1
+end
+
+entity Cube2
+type mesh
+model Models/cube.fbx
+position 2 -2 15
+rotation 0 0 0
+scale 1 1 1
+tag spin
+end
+
+entity Cube3
+type mesh
+model Models/cube.fbx
+position 4 -2 15
+rotation 0 0 0
+scale 1 1 1
+color 1 0 0 0.5
+tag spin
+end
+
+entity Triangle
+type mesh
+model Models/triangle.fbx
+position 0 -2 0
+rotation 0 0 0
+scale 1 1 1
+end
+
+entity Sphere
+type mesh
+model Models/sphere.fbx
+position 4 -2 0
+rotation 0 0 0
+scale 1 1 1
+end
