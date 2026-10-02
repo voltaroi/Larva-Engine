@@ -15,6 +15,11 @@ public:
     ~Client();
 
     bool connectToServer(const std::string& host, int port);
+    // Transport externe (Steam, relais...) à la place de TCP : sender envoie les données vers le serveur,
+    // et receiveData() injecte ce qui en revient (mêmes lignes, même file de messages que par TCP)
+    void connectExternal(std::function<void(const std::string&)> sender);
+    void receiveData(const std::string &data);
+    bool isExternal() const { return externalSend != nullptr; }
     void sendMessage(const std::string& msg);
     void sendEvent(const std::string &eventName, const JsonValue &data) override;
     void disconnect();
@@ -36,6 +41,11 @@ private:
     std::atomic<bool> queueEnabled{false};
     std::mutex queueMutex;
     std::vector<std::string> queue;
+
+    void handleLine(const std::string &line);
+    std::function<void(const std::string&)> externalSend;
+    std::mutex externalMutex;
+    std::string externalPending;
 
     SOCKET clientSocket = INVALID_SOCKET;
     std::atomic<bool> running{false};

@@ -78,7 +78,40 @@ bool Client::connectToServer(const std::string &host, int port) {
     return true;
 }
 
+void Client::connectExternal(std::function<void(const std::string&)> sender) {
+    disconnect();
+    {
+        std::lock_guard<std::mutex> lock(externalMutex);
+        externalPending.clear();
+    }
+    externalSend = std::move(sender);
+    running = true;
+}
+
+void Client::receiveData(const std::string &data) {
+    if (!running || !externalSend)
+        return;
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::mutex> lock(externalMutex);
+        externalPending += data;
+        size_t pos;
+        while ((pos = externalPending.find('\n')) != std::string::npos) {
+            lines.push_back(externalPending.substr(0, pos));
+            externalPending.erase(0, pos + 1);
+        }
+    }
+    for (const auto &line : lines)
+        if (!line.empty())
+            handleLine(line);
+}
+
 void Client::sendMessage(const std::string &msg) {
+    if (externalSend) {
+        if (running)
+            externalSend(msg);
+        return;
+    }
     send(clientSocket, msg.c_str(), msg.size(), 0);
 }
 
@@ -90,6 +123,10 @@ void Client::sendEvent(const std::string &eventName, const JsonValue &data) {
 
 void Client::disconnect() {
     running = false;
+    if (externalSend) {
+        externalSend = nullptr;
+        return;
+    }
     SOCKET socketToClose = clientSocket;
     if (socketToClose != INVALID_SOCKET) {
         closesocket(socketToClose);
@@ -113,11 +150,28 @@ void Client::clearMessages() {
     queue.clear();
 }
 
+void Client::handleLine(const std::string &line) {
+    // Messages EVENT <nom> <json>
+    if (line.rfind("EVENT ", 0) == 0) {
+        size_t space = line.find(' ', 6);
+        if (space != std::string::npos) {
+            std::string eventName = line.substr(6, space - 6);
+            std::string json = line.substr(space + 1);
+            JsonValue data = JsonValue::parse(json);
+            handleEvent(eventName, data);
+        }
+        return;
+    }
+    if (onMessage) onMessage(line);
+    else if (queueEnabled) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        queue.push_back(line);
+    }
+}
+
 void Client::receiveLoop() {
     char buffer[512];
     std::string pending;
-    using clock = std::chrono::steady_clock;
-    auto lastPosLog = clock::time_point::min();
     while (running) {
         int bytes = recv(clientSocket, buffer, sizeof(buffer)-1, 0);
         if (bytes <= 0) {
@@ -135,35 +189,7 @@ void Client::receiveLoop() {
             pending.erase(0, pos + 1);
 
             if (line.empty()) continue;
-
-            // Parse EVENT messages: EVENT <name> <json>
-            if (line.rfind("EVENT ", 0) == 0) {
-                size_t space = line.find(' ', 6);
-                if (space != std::string::npos) {
-                    std::string eventName = line.substr(6, space - 6);
-                    std::string json = line.substr(space + 1);
-                    JsonValue data = JsonValue::parse(json);
-                    handleEvent(eventName, data);
-                }
-                continue;
-            }
-
-            // If it's a POS message, throttle console printing to at most once every 5 seconds
-            if (line.rfind("POS ", 0) == 0) {
-                auto now = clock::now();
-                if (now - lastPosLog > std::chrono::seconds(5)) {
-                    // std::cout << "[Server] " << line << std::endl;
-                    lastPosLog = now;
-                }
-            } else {
-                // std::cout << "[Server] " << line << std::endl;
-            }
-
-            if (onMessage) onMessage(line);
-            else if (queueEnabled) {
-                std::lock_guard<std::mutex> lock(queueMutex);
-                queue.push_back(line);
-            }
+            handleLine(line);
         }
     }
 
