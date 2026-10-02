@@ -4,6 +4,8 @@ in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
 in vec4 FragPosLightSpace;
+in vec3 LocalPos;
+in vec3 LocalNormal;
 
 out vec4 FragColor;
 
@@ -166,6 +168,22 @@ uniform bool uLinearOutput;
 uniform float uSpecular;
 uniform float uShininess;
 uniform float uEmissive;
+// Point lights (Model::SetPointLights) : xyz position, w radius ; colour in linear HDR
+const int MAX_POINT_LIGHTS = 32;
+uniform int uPointCount;
+uniform vec4 uPointPos[MAX_POINT_LIGHTS];
+uniform vec3 uPointColor[MAX_POINT_LIGHTS];
+// Physically based material (Model::setPBR) and object-space detail texture (Model::setDetail)
+uniform mat3 normalMatrix;
+uniform vec3 uObjectScale;
+uniform bool uPBR;
+uniform float uRoughness;
+uniform float uMetallic;
+uniform bool uHasDetail;
+uniform sampler2D uDetail;
+uniform float uDetailScale;
+uniform float uDetailStrength;
+const float PI = 3.14159265;
 
 float envHash(vec2 p)
 {
@@ -245,6 +263,123 @@ vec3 acesTonemap(vec3 x)
     return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 
+// Detail texture projected on the three object axes ("whiteout" blend of the tangent normals).
+// N: world normal, replaced by the detailed one. roughOffset: B channel, cavity: A channel.
+void applyDetail(inout vec3 N, out float roughOffset, out float cavity)
+{
+    roughOffset = 0.0;
+    cavity = 1.0;
+    if (!uHasDetail)
+        return;
+    vec3 n = normalize(LocalNormal);
+    vec3 p = LocalPos * uDetailScale;
+    vec3 w = pow(abs(n), vec3(4.0));
+    w /= (w.x + w.y + w.z);
+    vec4 tx = texture(uDetail, p.zy);
+    vec4 ty = texture(uDetail, p.xz);
+    vec4 tz = texture(uDetail, p.xy);
+    vec2 dX = (tx.rg * 2.0 - 1.0) * uDetailStrength;
+    vec2 dY = (ty.rg * 2.0 - 1.0) * uDetailStrength;
+    vec2 dZ = (tz.rg * 2.0 - 1.0) * uDetailStrength;
+    vec3 tnX = vec3(dX + n.zy, sqrt(max(1.0 - dot(dX, dX), 0.0)) * n.x);
+    vec3 tnY = vec3(dY + n.xz, sqrt(max(1.0 - dot(dY, dY), 0.0)) * n.y);
+    vec3 tnZ = vec3(dZ + n.xy, sqrt(max(1.0 - dot(dZ, dZ), 0.0)) * n.z);
+    vec3 nl = normalize(tnX.zyx * w.x + tnY.xzy * w.y + tnZ.xyz * w.z);
+    vec3 world = normalize(normalMatrix * (nl * uObjectScale));
+    // Keep the geometric orientation (faces seen from behind are flipped later)
+    N = dot(world, N) < 0.0 ? -world : world;
+    vec4 t = tx * w.x + ty * w.y + tz * w.z;
+    roughOffset = (t.b - 0.5) * 2.0;
+    cavity = mix(1.0, t.a, uDetailStrength);
+}
+
+// GGX / Smith / Schlick, multiplied by PI so that a white lambertian surface receives "colour * N.L" as in
+// the specular / shininess model. aLight: roughness widened by the size of the light (sphere lights).
+vec3 pbrLight(vec3 N, vec3 V, vec3 L, vec3 albedo, vec3 F0, float rough, float metal, float aLight)
+{
+    float NoL = max(dot(N, L), 0.0);
+    if (NoL <= 0.0)
+        return vec3(0.0);
+    vec3 H = normalize(L + V);
+    float NoV = max(dot(N, V), 1e-4);
+    float NoH = max(dot(N, H), 0.0);
+    float VoH = max(dot(V, H), 0.0);
+    vec3 F = F0 + (1.0 - F0) * pow(1.0 - VoH, 5.0);
+    float a = rough * rough;
+    float a2 = max(aLight * aLight, 1e-6);
+    float d = NoH * NoH * (a2 - 1.0) + 1.0;
+    float D = a2 / (PI * d * d) * (a * a) / a2;
+    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+    float vis = 1.0 / ((NoV * (1.0 - k) + k) * (NoL * (1.0 - k) + k));
+    vec3 spec = D * vis * F * 0.25;
+    vec3 diffuse = (1.0 - F) * (1.0 - metal) * albedo / PI;
+    return (diffuse + spec) * NoL * PI;
+}
+
+// Split-sum environment term without a lookup table (Karis, mobile approximation)
+vec3 envBRDFApprox(vec3 F0, float rough, float NoV)
+{
+    const vec4 c0 = vec4(-1.0, -0.0275, -0.572, 0.022);
+    const vec4 c1 = vec4(1.0, 0.0425, 1.04, -0.04);
+    vec4 r = rough * c0 + c1;
+    float a004 = min(r.x * r.x, exp2(-9.28 * NoV)) * r.x + r.y;
+    vec2 AB = vec2(-1.04, 1.04) * a004 + r.zw;
+    return F0 * AB.x + AB.y;
+}
+
+vec3 applyFog(vec3 color, vec3 V, vec3 L)
+{
+    float dist = length(viewPos - FragPos);
+    float fog = 1.0 - exp(-dist * uFogDensity);
+    float sunAmount = pow(max(dot(-V, L), 0.0), 8.0);
+    vec3 fogColor = mix(uFogColor, uFogColor + uSunColor * 0.15, sunAmount);
+    return mix(color, fogColor, fog);
+}
+
+vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavity)
+{
+    float rough = clamp(uRoughness + roughOffset * 0.5, 0.04, 1.0);
+    float metal = uMetallic;
+    vec3 F0 = mix(vec3(0.04), albedo, metal);
+    float a = rough * rough;
+    float NoV = max(dot(N, V), 1e-4);
+
+    float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
+    vec3 color = uSunColor * pbrLight(N, V, L, albedo, F0, rough, metal, a) * visibility;
+
+    // Point lights: small spheres (radius 0.25) so that glossy surfaces show a visible reflection
+    vec3 nearLight = vec3(0.0);
+    for (int i = 0; i < uPointCount; ++i)
+    {
+        vec3 toLight = uPointPos[i].xyz - FragPos;
+        float d2 = dot(toLight, toLight);
+        float r = uPointPos[i].w;
+        if (d2 >= r * r)
+            continue;
+        float d = sqrt(d2);
+        vec3 Lp = toLight / max(d, 0.0001);
+        float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+        float att = window * window / (1.0 + d2);
+        float aL = clamp(a + 0.25 / (2.0 * max(d, 0.05)), 0.0, 1.0);
+        color += uPointColor[i] * att * pbrLight(N, V, Lp, albedo, F0, rough, metal, aL);
+        nearLight += uPointColor[i] * att;
+    }
+
+    // Ambient: sky / ground, and a blurred reflection of the surroundings (sky, nearby lights)
+    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5);
+    vec3 R = reflect(-V, N);
+    vec3 envColor = mix(envSky(R), ambient, clamp(rough * 1.3, 0.0, 1.0)) + nearLight * 0.06;
+    vec3 Fenv = envBRDFApprox(F0, rough, NoV);
+    color += (albedo * (1.0 - metal) * ambient * (1.0 - Fenv) + envColor * Fenv) * cavity;
+    color *= mix(0.55, 1.0, cavity); // deep grooves and seams also receive less direct light
+    color += albedo * uEmissive * 4.0 * cavity; // emissive surfaces: the cavity channel is their pattern (screens)
+
+    color = applyFog(color, V, L);
+    if (!uLinearOutput)
+        color = pow(acesTonemap(color), vec3(1.0 / 2.2));
+    return vec4(color, objectAlpha);
+}
+
 vec4 environmentShade()
 {
     vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : objectColor;
@@ -253,8 +388,14 @@ vec4 environmentShade()
     vec3 N = normalize(Normal);
     vec3 L = normalize(uSunDir);
     vec3 V = normalize(viewPos - FragPos);
-    if (dot(N, V) < 0.0)
+    float roughOffset, cavity;
+    applyDetail(N, roughOffset, cavity);
+    if (dot(normalize(Normal), V) < 0.0)
         N = -N; // faces vues de dos (meshes ouverts)
+
+    if (uPBR)
+        return pbrShade(albedo, N, V, L, roughOffset, cavity);
+    albedo *= cavity;
 
     float ndl = max(dot(N, L), 0.0);
     float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
@@ -270,13 +411,25 @@ vec4 environmentShade()
 
     vec3 color = albedo * (direct + ambient) + specular + reflection + albedo * uEmissive * 4.0;
 
-    // Brouillard atmosphérique, teinté par le soleil
-    float dist = length(viewPos - FragPos);
-    float fog = 1.0 - exp(-dist * uFogDensity);
-    float sunAmount = pow(max(dot(-V, L), 0.0), 8.0);
-    vec3 fogColor = mix(uFogColor, uFogColor + uSunColor * 0.15, sunAmount);
-    color = mix(color, fogColor, fog);
+    // Point lights: inverse square falloff, smoothly windowed to zero at the radius
+    for (int i = 0; i < uPointCount; ++i)
+    {
+        vec3 toLight = uPointPos[i].xyz - FragPos;
+        float d2 = dot(toLight, toLight);
+        float r = uPointPos[i].w;
+        if (d2 >= r * r)
+            continue;
+        float d = sqrt(d2);
+        vec3 Lp = toLight / max(d, 0.0001);
+        float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+        float att = window * window / (1.0 + d2);
+        float nlp = max(dot(N, Lp), 0.0);
+        vec3 Hp = normalize(Lp + V);
+        float sp = pow(max(dot(N, Hp), 0.0), uShininess) * (uShininess + 8.0) / 25.13;
+        color += uPointColor[i] * att * nlp * (albedo + sp * uSpecular * mix(0.25, 1.0, fresnel));
+    }
 
+    color = applyFog(color, V, L);
     if (!uLinearOutput)
         color = pow(acesTonemap(color), vec3(1.0 / 2.2));
     return vec4(color, objectAlpha);

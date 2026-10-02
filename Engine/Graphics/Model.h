@@ -65,8 +65,24 @@ public:
     static unsigned int GetShadowMapTexture();
     static void GetLightSpaceMatrix(float out[16]);
 
+    // Point lights (environment lighting only, no shadows). posRadius: x, y, z, radius of influence for each
+    // light; colors: linear HDR r, g, b (includes intensity). count = 0 turns them off (default).
+    static const int MAX_POINT_LIGHTS = 32;
+    static void SetPointLights(int count, const float *posRadius, const float *colors);
+
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);
+    // Physically based material (environment lighting only, opt-in): GGX specular, metallic workflow.
+    // roughness 0 (mirror) .. 1 (matte); metallic 0 (paint, plastic...) .. 1 (bare metal). The emissive
+    // value of setMaterial still applies. clearPBR() returns to the specular / shininess model.
+    void setPBR(float roughness, float metallic);
+    void clearPBR();
+    // Detail texture (environment lighting only), projected in object space on the three axes (no UVs
+    // needed, follows the object when it moves; scale is taken into account so the pattern is not stretched).
+    // Texel: R, G = tangent-space normal (0.5 = flat), B = roughness offset (0.5 = none, PBR only),
+    // A = cavity / ambient occlusion (1 = none). scale: repetitions per unit; strength: 0..1 (normal and
+    // cavity intensity). texture = 0 turns it off.
+    void setDetail(unsigned int texture, float scale = 1.0f, float strength = 1.0f);
     
 public:
     struct Mesh {
@@ -92,6 +108,12 @@ public:
     float specular = 0.25f;
     float shininess = 32.0f;
     float emissive = 0.0f;
+    bool pbr = false;
+    float roughness = 0.5f;
+    float metallic = 0.0f;
+    unsigned int detailTexture = 0;
+    float detailScale = 1.0f;
+    float detailStrength = 1.0f;
 
     bool useColorOverride = false;
     float overrideR = 1.0f;

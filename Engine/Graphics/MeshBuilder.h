@@ -40,6 +40,15 @@ public:
     // Tube (cylindre) du point a au point b, fermé aux deux bouts si caps
     void tube(const float a[3], const float b[3], float radius, int sides = 8, bool caps = true);
 
+    // Boîte aux arêtes arrondies (rayon radius, segments par quart de cercle) centrée en (cx, cy, cz)
+    void roundedBox(float cx, float cy, float cz, float hx, float hy, float hz, float radius, int segments = 3);
+
+    // Solide de révolution autour de l'axe Y passant par (cx, cy, cz). profile : suite de points (rayon, hauteur)
+    // parcourue de bas en haut par l'extérieur (le côté gauche du parcours est l'intérieur). Les normales sont
+    // lissées entre deux segments du profil sauf si l'angle dépasse creaseDeg (arête vive).
+    void lathe(const std::vector<float> &profile, int segments = 24, float cx = 0.0f, float cy = 0.0f, float cz = 0.0f,
+               float creaseDeg = 35.0f);
+
     // Crée les buffers GPU du modèle (transformation neutre) avec une couleur unie
     void uploadTo(Model &model, float r, float g, float b) const;
 };

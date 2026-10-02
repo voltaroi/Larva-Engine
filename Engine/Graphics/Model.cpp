@@ -16,6 +16,7 @@
 #include <vector>
 #include <map>
 #include <unordered_map>
+#include <algorithm>
 
 static GLuint g_modelProgram = 0;
 static GLuint g_shadowProgram = 0;
@@ -27,6 +28,10 @@ static float g_shadowHalfSize = 20.0f;
 static float g_shadowNear = 1.0f;
 static float g_shadowFar = 50.0f;
 static Model::Environment g_environment;
+// Point lights (environment lighting)
+static int g_pointCount = 0;
+static float g_pointPos[Model::MAX_POINT_LIGHTS * 4];
+static float g_pointColor[Model::MAX_POINT_LIGHTS * 3];
 static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -67,6 +72,17 @@ struct ModelProgInfo
     GLint locSpecular = -1;
     GLint locShininess = -1;
     GLint locEmissive = -1;
+    GLint locPointCount = -1;
+    GLint locPointPos = -1;
+    GLint locPointColor = -1;
+    GLint locPBR = -1;
+    GLint locRoughness = -1;
+    GLint locMetallic = -1;
+    GLint locHasDetail = -1;
+    GLint locDetail = -1;
+    GLint locDetailScale = -1;
+    GLint locDetailStrength = -1;
+    GLint locObjectScale = -1;
 };
 static ModelProgInfo g_modelInfo;
 
@@ -494,6 +510,17 @@ static GLuint createModelProgram()
     g_modelInfo.locSpecular = glGetUniformLocation(g_modelProgram, "uSpecular");
     g_modelInfo.locShininess = glGetUniformLocation(g_modelProgram, "uShininess");
     g_modelInfo.locEmissive = glGetUniformLocation(g_modelProgram, "uEmissive");
+    g_modelInfo.locPointCount = glGetUniformLocation(g_modelProgram, "uPointCount");
+    g_modelInfo.locPointPos = glGetUniformLocation(g_modelProgram, "uPointPos");
+    g_modelInfo.locPointColor = glGetUniformLocation(g_modelProgram, "uPointColor");
+    g_modelInfo.locPBR = glGetUniformLocation(g_modelProgram, "uPBR");
+    g_modelInfo.locRoughness = glGetUniformLocation(g_modelProgram, "uRoughness");
+    g_modelInfo.locMetallic = glGetUniformLocation(g_modelProgram, "uMetallic");
+    g_modelInfo.locHasDetail = glGetUniformLocation(g_modelProgram, "uHasDetail");
+    g_modelInfo.locDetail = glGetUniformLocation(g_modelProgram, "uDetail");
+    g_modelInfo.locDetailScale = glGetUniformLocation(g_modelProgram, "uDetailScale");
+    g_modelInfo.locDetailStrength = glGetUniformLocation(g_modelProgram, "uDetailStrength");
+    g_modelInfo.locObjectScale = glGetUniformLocation(g_modelProgram, "uObjectScale");
     return g_modelProgram;
 }
 
@@ -1066,6 +1093,26 @@ void Model::draw()
         glUniform1f(g_modelInfo.locShininess, shininess);
     if (g_modelInfo.locEmissive >= 0)
         glUniform1f(g_modelInfo.locEmissive, emissive);
+    if (g_modelInfo.locPBR >= 0)
+        glUniform1i(g_modelInfo.locPBR, pbr ? 1 : 0);
+    if (pbr)
+    {
+        glUniform1f(g_modelInfo.locRoughness, roughness);
+        glUniform1f(g_modelInfo.locMetallic, metallic);
+    }
+    if (g_modelInfo.locObjectScale >= 0)
+        glUniform3f(g_modelInfo.locObjectScale, scaleX, scaleY, scaleZ);
+    if (g_modelInfo.locHasDetail >= 0)
+        glUniform1i(g_modelInfo.locHasDetail, detailTexture != 0 ? 1 : 0);
+    if (detailTexture != 0)
+    {
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, detailTexture);
+        glUniform1i(g_modelInfo.locDetail, 2);
+        glUniform1f(g_modelInfo.locDetailScale, detailScale);
+        glUniform1f(g_modelInfo.locDetailStrength, detailStrength);
+        glActiveTexture(GL_TEXTURE0);
+    }
 
     for (auto &entry : batches)
     {
@@ -1217,6 +1264,15 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         glUniform2fv(g_modelInfo.locCloudOffset, 1, e.cloudOffset);
         glUniform1i(g_modelInfo.locLinearOutput, e.linearOutput ? 1 : 0);
     }
+    if (g_modelInfo.locPointCount >= 0)
+        glUniform1i(g_modelInfo.locPointCount, e.enabled ? g_pointCount : 0);
+    if (e.enabled && g_pointCount > 0)
+    {
+        if (g_modelInfo.locPointPos >= 0)
+            glUniform4fv(g_modelInfo.locPointPos, g_pointCount, g_pointPos);
+        if (g_modelInfo.locPointColor >= 0)
+            glUniform3fv(g_modelInfo.locPointColor, g_pointCount, g_pointColor);
+    }
     glUseProgram(0);
 }
 
@@ -1300,6 +1356,15 @@ bool Model::createFromData(const std::vector<SimpleVertex> &verts, const std::ve
     return true;
 }
 
+void Model::SetPointLights(int count, const float *posRadius, const float *colors)
+{
+    g_pointCount = std::max(0, std::min(MAX_POINT_LIGHTS, count));
+    for (int i = 0; i < g_pointCount * 4; ++i)
+        g_pointPos[i] = posRadius[i];
+    for (int i = 0; i < g_pointCount * 3; ++i)
+        g_pointColor[i] = colors[i];
+}
+
 void Model::SetEnvironment(const Environment &env)
 {
     g_environment = env;
@@ -1334,4 +1399,23 @@ void Model::setMaterial(float specularStrength, float shininessValue, float emis
     specular = specularStrength;
     shininess = shininessValue;
     emissive = emissiveValue;
+}
+
+void Model::setPBR(float roughnessValue, float metallicValue)
+{
+    pbr = true;
+    roughness = std::max(0.02f, std::min(1.0f, roughnessValue));
+    metallic = std::max(0.0f, std::min(1.0f, metallicValue));
+}
+
+void Model::clearPBR()
+{
+    pbr = false;
+}
+
+void Model::setDetail(unsigned int texture, float scale, float strength)
+{
+    detailTexture = texture;
+    detailScale = scale;
+    detailStrength = strength;
 }

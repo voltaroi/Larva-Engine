@@ -1,4 +1,5 @@
 #include "Client.h"
+#include <ws2tcpip.h>
 #include <chrono>
 
 #undef min
@@ -20,10 +21,26 @@ bool Client::connectToServer(const std::string &host, int port) {
         return false;
     }
 
+    // Adresse sans espaces autour (copiée-collée d'un chat) ; un nom d'hôte est aussi accepté
+    size_t first = host.find_first_not_of(" \t\r\n"), last = host.find_last_not_of(" \t\r\n");
+    std::string address = first == std::string::npos ? "" : host.substr(first, last - first + 1);
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_port = htons(port);
-    serverAddr.sin_addr.s_addr = inet_addr(host.c_str());
+    serverAddr.sin_addr.s_addr = inet_addr(address.c_str());
+    if (serverAddr.sin_addr.s_addr == INADDR_NONE) {
+        addrinfo hints{}, *found = nullptr;
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        if (address.empty() || getaddrinfo(address.c_str(), nullptr, &hints, &found) != 0 || !found) {
+            closesocket(clientSocket);
+            clientSocket = INVALID_SOCKET;
+            WSACleanup();
+            return false;
+        }
+        serverAddr.sin_addr = ((sockaddr_in *)found->ai_addr)->sin_addr;
+        freeaddrinfo(found);
+    }
 
     // Non-blocking connect with a timeout, so a wrong address does not freeze the caller for ~20s
     u_long nonBlocking = 1;
@@ -35,7 +52,7 @@ bool Client::connectToServer(const std::string &host, int port) {
     FD_ZERO(&errorSet);
     FD_SET(clientSocket, &writeSet);
     FD_SET(clientSocket, &errorSet);
-    timeval timeout{3, 0};
+    timeval timeout{6, 0}; // les VPN (Hamachi en relais) peuvent être lents à établir la connexion
     int ready = select(0, nullptr, &writeSet, &errorSet, &timeout);
 
     int socketError = 0;

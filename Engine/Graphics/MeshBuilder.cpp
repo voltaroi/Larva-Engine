@@ -239,6 +239,131 @@ void MeshBuilder::tube(const float a[3], const float b[3], float radius, int sid
     }
 }
 
+void MeshBuilder::roundedBox(float cx, float cy, float cz, float hx, float hy, float hz, float radius, int segments)
+{
+    const float HALF_PI = 1.5707963f;
+    segments = segments < 1 ? 1 : segments;
+    radius = std::fmin(radius, std::fmin(hx, std::fmin(hy, hz)));
+    const float h[3] = {hx, hy, hz};
+    // Coordonnées d'une ligne de la grille le long d'un axe : arrondi (quart de cercle), plat, arrondi
+    std::vector<float> lines[3];
+    for (int a = 0; a < 3; ++a)
+    {
+        float in = h[a] - radius;
+        for (int i = 0; i <= segments; ++i)
+            lines[a].push_back(-in - radius * std::cos(HALF_PI * i / segments));
+        for (int i = 0; i <= segments; ++i)
+            lines[a].push_back(in + radius * std::sin(HALF_PI * i / segments));
+    }
+    // Chaque face du cube est une grille ; ses sommets sont ramenés sur la surface arrondie
+    for (int axis = 0; axis < 3; ++axis)
+        for (int side = -1; side <= 1; side += 2)
+        {
+            int u = (axis + 1) % 3, v = (axis + 2) % 3;
+            const std::vector<float> &lu = lines[u], &lv = lines[v];
+            unsigned int base = (unsigned int)verts.size();
+            for (size_t j = 0; j < lv.size(); ++j)
+                for (size_t i = 0; i < lu.size(); ++i)
+                {
+                    float p[3];
+                    p[axis] = side * h[axis];
+                    p[u] = lu[i];
+                    p[v] = lv[j];
+                    float inner[3], n[3], len = 0.0f;
+                    for (int k = 0; k < 3; ++k)
+                    {
+                        float lim = h[k] - radius;
+                        inner[k] = std::fmax(-lim, std::fmin(lim, p[k]));
+                        n[k] = p[k] - inner[k];
+                        len += n[k] * n[k];
+                    }
+                    len = std::sqrt(len);
+                    if (len < 1e-7f)
+                    {
+                        n[0] = n[1] = n[2] = 0.0f;
+                        n[axis] = (float)side;
+                    }
+                    else
+                        for (float &k : n)
+                            k /= len;
+                    float pos[3];
+                    for (int k = 0; k < 3; ++k)
+                        pos[k] = radius > 0.0f ? inner[k] + n[k] * radius : p[k];
+                    verts.push_back({pos[0] + cx, pos[1] + cy, pos[2] + cz, n[0], n[1], n[2],
+                                     (p[u] / h[u] + 1.0f) * 0.5f, (p[v] / h[v] + 1.0f) * 0.5f});
+                }
+            unsigned int w = (unsigned int)lu.size();
+            for (unsigned int j = 0; j + 1 < lv.size(); ++j)
+                for (unsigned int i = 0; i + 1 < w; ++i)
+                {
+                    unsigned int a = base + j * w + i, b = a + 1, c2 = a + w + 1, d = a + w;
+                    // u x v = +axis : sens direct sur la face positive, inversé sur la face négative
+                    if (side > 0)
+                        indices.insert(indices.end(), {a, b, c2, a, c2, d});
+                    else
+                        indices.insert(indices.end(), {a, c2, b, a, d, c2});
+                }
+        }
+}
+
+void MeshBuilder::lathe(const std::vector<float> &profile, int segments, float cx, float cy, float cz, float creaseDeg)
+{
+    const float TWO_PI = 6.28318531f;
+    size_t n = profile.size() / 2;
+    if (n < 2)
+        return;
+    segments = segments < 3 ? 3 : segments;
+    // Normale (radiale, verticale) de chaque segment du profil
+    std::vector<float> sr(n - 1), sy(n - 1);
+    for (size_t i = 0; i + 1 < n; ++i)
+    {
+        float dr = profile[(i + 1) * 2] - profile[i * 2], dy = profile[(i + 1) * 2 + 1] - profile[i * 2 + 1];
+        float len = std::sqrt(dr * dr + dy * dy);
+        sr[i] = len > 1e-7f ? dy / len : 0.0f;
+        sy[i] = len > 1e-7f ? -dr / len : 0.0f;
+    }
+    float crease = std::cos(creaseDeg * 3.14159265f / 180.0f);
+    auto normalAt = [&](size_t seg, size_t point, float &nr, float &ny)
+    {
+        nr = sr[seg];
+        ny = sy[seg];
+        size_t other = point == seg ? seg - 1 : seg + 1; // segment voisin qui partage ce point
+        if ((point == seg && seg == 0) || (point != seg && seg + 1 >= n - 1))
+            return;
+        if (sr[seg] * sr[other] + sy[seg] * sy[other] < crease)
+            return;
+        nr += sr[other];
+        ny += sy[other];
+        float len = std::sqrt(nr * nr + ny * ny);
+        if (len > 1e-7f)
+        {
+            nr /= len;
+            ny /= len;
+        }
+    };
+    for (size_t s = 0; s + 1 < n; ++s)
+    {
+        unsigned int base = (unsigned int)verts.size();
+        for (int e = 0; e < 2; ++e)
+        {
+            size_t pi = s + e;
+            float r = profile[pi * 2], y = profile[pi * 2 + 1], nr, ny;
+            normalAt(s, pi, nr, ny);
+            for (int k = 0; k <= segments; ++k)
+            {
+                float a = TWO_PI * k / segments, ca = std::cos(a), sa = std::sin(a);
+                verts.push_back({cx + ca * r, cy + y, cz + sa * r, ca * nr, ny, sa * nr, (float)k / segments, (float)pi / (n - 1)});
+            }
+        }
+        unsigned int w = (unsigned int)segments + 1;
+        for (unsigned int k = 0; k < (unsigned int)segments; ++k)
+        {
+            unsigned int a = base + k, b = base + k + 1, c2 = base + w + k + 1, d = base + w + k;
+            indices.insert(indices.end(), {a, d, c2, a, c2, b});
+        }
+    }
+}
+
 void MeshBuilder::uploadTo(Model &m, float r, float g, float b) const
 {
     m.createFromData(verts, indices);
