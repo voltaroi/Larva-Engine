@@ -68,7 +68,7 @@ void AudioDevice::setDoppler(float factor, float speedOfSound)
     alSpeedOfSound(speedOfSound);
 }
 
-unsigned int AudioDevice::createBuffer(const std::vector<float> &samples, int sampleRate)
+unsigned int AudioDevice::createBuffer(const std::vector<float> &samples, int sampleRate, int channels)
 {
     if (!device)
         return 0;
@@ -77,7 +77,7 @@ unsigned int AudioDevice::createBuffer(const std::vector<float> &samples, int sa
         pcm[i] = (short)std::max(-32767.0f, std::min(32767.0f, samples[i] * 32767.0f));
     ALuint buffer = 0;
     alGenBuffers(1, &buffer);
-    alBufferData(buffer, AL_FORMAT_MONO16, pcm.data(), (ALsizei)(pcm.size() * sizeof(short)), sampleRate);
+    alBufferData(buffer, channels == 2 ? AL_FORMAT_STEREO16 : AL_FORMAT_MONO16, pcm.data(), (ALsizei)(pcm.size() * sizeof(short)), sampleRate);
     buffers.push_back(buffer);
     return buffer;
 }
@@ -93,6 +93,23 @@ unsigned int AudioDevice::createLoopSource(unsigned int buffer, float referenceD
     alSourcef(source, AL_REFERENCE_DISTANCE, referenceDistance);
     alSourcef(source, AL_ROLLOFF_FACTOR, rolloff);
     alSourcef(source, AL_MAX_DISTANCE, maxDistance);
+    alSourcef(source, AL_GAIN, 0.0f);
+    alSourcePlay(source);
+    sources.push_back(source);
+    return source;
+}
+
+unsigned int AudioDevice::createMusicSource(unsigned int buffer)
+{
+    if (!device)
+        return 0;
+    ALuint source = 0;
+    alGenSources(1, &source);
+    alSourcei(source, AL_BUFFER, buffer);
+    alSourcei(source, AL_LOOPING, AL_TRUE);
+    alSourcei(source, AL_SOURCE_RELATIVE, AL_TRUE); // collée à l'auditeur
+    alSource3f(source, AL_POSITION, 0.0f, 0.0f, 0.0f);
+    alSourcef(source, AL_ROLLOFF_FACTOR, 0.0f);
     alSourcef(source, AL_GAIN, 0.0f);
     alSourcePlay(source);
     sources.push_back(source);

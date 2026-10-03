@@ -19,11 +19,14 @@ public:
     // Effet Doppler et vitesse du son (m/s)
     void setDoppler(float factor, float speedOfSound = 343.3f);
 
-    // Buffer mono 16 bits depuis des échantillons dans [-1, 1]
-    unsigned int createBuffer(const std::vector<float> &samples, int sampleRate = SAMPLE_RATE);
+    // Buffer 16 bits depuis des échantillons dans [-1, 1] (entrelacés si stéréo)
+    unsigned int createBuffer(const std::vector<float> &samples, int sampleRate = SAMPLE_RATE, int channels = 1);
     // Source 3D qui joue le buffer en boucle, volume nul au départ
     unsigned int createLoopSource(unsigned int buffer, float referenceDistance = 8.0f, float maxDistance = 250.0f,
                                   float rolloff = 1.0f);
+
+    // Musique / ambiance : boucle non spatialisée (toujours au même volume), volume nul au départ
+    unsigned int createMusicSource(unsigned int buffer);
 
     // Son ponctuel ; relative = position relative à l'auditeur (ex. interface, entendu partout pareil)
     void playOneShot(unsigned int buffer, float x, float y, float z, float gain, float pitch = 1.0f,
