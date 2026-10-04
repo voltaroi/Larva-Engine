@@ -26,6 +26,8 @@ namespace
     const GUID kSlider = LARVA_AXIS_GUID(0xA36D02E4), kPOV = LARVA_AXIS_GUID(0xA36D02F2);
 #undef LARVA_AXIS_GUID
     const GUID kConstantForce = {0x13541C20, 0x8E33, 0x11D0, {0x9A, 0xD0, 0x00, 0xA0, 0xC9, 0xA0, 0x6E, 0x35}};
+    const GUID kSpring = {0x13541C27, 0x8E33, 0x11D0, {0x9A, 0xD0, 0x00, 0xA0, 0xC9, 0xA0, 0x6E, 0x35}};
+    const GUID kDamper = {0x13541C28, 0x8E33, 0x11D0, {0x9A, 0xD0, 0x00, 0xA0, 0xC9, 0xA0, 0x6E, 0x35}};
 
     typedef HRESULT(WINAPI *DirectInput8CreateFn)(HINSTANCE, DWORD, REFIID, LPVOID *, LPUNKNOWN);
     typedef DWORD(WINAPI *XInputGetStateFn)(DWORD, XINPUT_STATE *);
@@ -34,10 +36,13 @@ namespace
     struct Device
     {
         Gamepad::DeviceInfo info;
+        std::string baseName;      // nom du produit (info.name peut porter un numéro en cas de doublon)
         Gamepad::State state;
         int xinputSlot = -1;
         IDirectInputDevice8A *di = nullptr;
         IDirectInputEffect *effect = nullptr;
+        IDirectInputEffect *spring = nullptr, *damper = nullptr; // effets de condition (ressort, amortisseur)
+        LONG lastSpring = -1, lastDamper = -1;
         GUID instance{};
         LONG lastForce = 0;
         float rumbleLow = -1.0f, rumbleHigh = -1.0f;
@@ -52,8 +57,8 @@ namespace
     DWORD lastXInputScan = 0;
     bool xConnected[4] = {};
 
-    // Format de données DIJOYSTATE (équivalent de c_dfDIJoystick, sans dinput8.lib)
-    DIOBJECTDATAFORMAT joyObjects[44];
+    // Format de données DIJOYSTATE2 (équivalent de c_dfDIJoystick2, sans dinput8.lib) : 8 axes, 4 croix, 128 boutons
+    DIOBJECTDATAFORMAT joyObjects[140];
     DIDATAFORMAT joyFormat;
 
     void buildFormat()
@@ -77,12 +82,12 @@ namespace
         add(&kSlider, 28, DIDFT_AXIS);
         for (int i = 0; i < 4; ++i)
             add(&kPOV, 32 + 4 * i, DIDFT_POV);
-        for (int i = 0; i < 32; ++i)
+        for (int i = 0; i < 128; ++i)
             add(nullptr, 48 + i, DIDFT_BUTTON);
         joyFormat.dwSize = sizeof(DIDATAFORMAT);
         joyFormat.dwObjSize = sizeof(DIOBJECTDATAFORMAT);
         joyFormat.dwFlags = DIDF_ABSAXIS;
-        joyFormat.dwDataSize = sizeof(DIJOYSTATE);
+        joyFormat.dwDataSize = sizeof(DIJOYSTATE2);
         joyFormat.dwNumObjs = k;
         joyFormat.rgodf = joyObjects;
     }
@@ -128,12 +133,13 @@ namespace
 
     void releaseDevice(Device &d)
     {
-        if (d.effect)
-        {
-            d.effect->Stop();
-            d.effect->Release();
-            d.effect = nullptr;
-        }
+        for (IDirectInputEffect **e : {&d.effect, &d.spring, &d.damper})
+            if (*e)
+            {
+                (*e)->Stop();
+                (*e)->Release();
+                *e = nullptr;
+            }
         if (d.di)
         {
             d.di->Unacquire();
@@ -170,7 +176,7 @@ namespace
         dev->SetProperty(DIPROP_RANGE, &range.diph);
         d.di = dev;
         d.instance = inst.guidInstance;
-        d.info.name = inst.tszProductName;
+        d.info.name = d.baseName = inst.tszProductName;
         d.info.xinput = false;
         d.info.axes = (int)std::min<DWORD>(caps.dwAxes, Gamepad::MAX_AXES);
         d.info.buttons = (int)std::min<DWORD>(caps.dwButtons, Gamepad::MAX_BUTTONS);
@@ -202,6 +208,15 @@ namespace
             eff.lpvTypeSpecificParams = &cf;
             if (SUCCEEDED(dev->CreateEffect(kConstantForce, &eff, &d.effect, nullptr)) && d.effect)
                 d.effect->Start(1, 0);
+            // Ressort et amortisseur : coefficients nuls au départ, réglés par setResistance
+            DICONDITION cond;
+            std::memset(&cond, 0, sizeof(cond));
+            eff.cbTypeSpecificParams = sizeof(DICONDITION);
+            eff.lpvTypeSpecificParams = &cond;
+            if (FAILED(dev->CreateEffect(kSpring, &eff, &d.spring, nullptr)))
+                d.spring = nullptr;
+            if (FAILED(dev->CreateEffect(kDamper, &eff, &d.damper, nullptr)))
+                d.damper = nullptr;
         }
         d.info.forceFeedback = d.effect != nullptr;
         dev->Acquire();
@@ -252,16 +267,17 @@ namespace
                     b = false;
                 return;
             }
-            d.lastForce = 1 << 30; // effet à renvoyer après la reprise
+            d.lastForce = 1 << 30; // effets à renvoyer après la reprise
+            d.lastSpring = d.lastDamper = -1;
         }
-        DIJOYSTATE js;
-        if (FAILED(d.di->GetDeviceState(sizeof(DIJOYSTATE), &js)))
+        DIJOYSTATE2 js;
+        if (FAILED(d.di->GetDeviceState(sizeof(DIJOYSTATE2), &js)))
             return;
         s.connected = true;
         const LONG values[8] = {js.lX, js.lY, js.lZ, js.lRx, js.lRy, js.lRz, js.rglSlider[0], js.rglSlider[1]};
         for (int i = 0; i < 8; ++i)
             s.axis[i] = std::max(-1.0f, std::min(1.0f, values[i] / 10000.0f));
-        for (int i = 0; i < 32; ++i)
+        for (int i = 0; i < 128; ++i)
             s.button[i] = (js.rgbButtons[i] & 0x80) != 0;
         s.pov = LOWORD(js.rgdwPOV[0]) == 0xFFFF ? -1 : (int)(js.rgdwPOV[0] / 100);
     }
@@ -317,7 +333,7 @@ namespace Gamepad
                 continue;
             Device d;
             d.xinputSlot = slot;
-            d.info.name = "Manette Xbox " + std::to_string(slot + 1);
+            d.info.name = d.baseName = "Manette Xbox " + std::to_string(slot + 1);
             d.info.xinput = true;
             d.info.axes = 6;
             d.info.buttons = 14;
@@ -349,6 +365,15 @@ namespace Gamepad
         }
         for (auto &d : devices)
             releaseDevice(d); // débranchés
+        // Deux périphériques identiques (deux pédaliers, deux boîtiers...) : noms distincts
+        for (size_t i = 0; i < next.size(); ++i)
+        {
+            int same = 1;
+            for (size_t j = 0; j < i; ++j)
+                if (next[j].baseName == next[i].baseName)
+                    ++same;
+            next[i].info.name = same > 1 ? next[i].baseName + " (" + std::to_string(same) + ")" : next[i].baseName;
+        }
         devices.swap(next);
         lastXInputScan = GetTickCount();
     }
@@ -435,6 +460,46 @@ namespace Gamepad
         d.effect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS | DIEP_START);
     }
 
+    bool setResistance(int device, float spring, float damper)
+    {
+        if (device < 0 || device >= count())
+            return false;
+        Device &d = devices[device];
+        if (!d.spring && !d.damper)
+            return false;
+        auto apply = [](IDirectInputEffect *effect, float value, LONG &last)
+        {
+            if (!effect)
+                return;
+            LONG coefficient = (LONG)(std::max(0.0f, std::min(1.0f, value)) * 10000.0f);
+            if (std::abs(coefficient - last) < 100)
+                return;
+            last = coefficient;
+            DWORD axes[1] = {0};
+            LONG direction[1] = {0};
+            DICONDITION cond;
+            cond.lOffset = 0;
+            cond.lPositiveCoefficient = coefficient;
+            cond.lNegativeCoefficient = coefficient;
+            cond.dwPositiveSaturation = 10000;
+            cond.dwNegativeSaturation = 10000;
+            cond.lDeadBand = 0;
+            DIEFFECT eff;
+            std::memset(&eff, 0, sizeof(eff));
+            eff.dwSize = sizeof(DIEFFECT);
+            eff.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
+            eff.cAxes = 1;
+            eff.rgdwAxes = axes;
+            eff.rglDirection = direction;
+            eff.cbTypeSpecificParams = sizeof(DICONDITION);
+            eff.lpvTypeSpecificParams = &cond;
+            effect->SetParameters(&eff, DIEP_TYPESPECIFICPARAMS | DIEP_START);
+        };
+        apply(d.spring, spring, d.lastSpring);
+        apply(d.damper, damper, d.lastDamper);
+        return d.spring != nullptr;
+    }
+
     const char *axisName(int device, int axis)
     {
         static const char *xNames[6] = {"Stick gauche X", "Stick gauche Y", "Stick droit X", "Stick droit Y", "Gachette LT", "Gachette RT"};
@@ -478,6 +543,7 @@ namespace Gamepad
     }
     void rumble(int, float, float) {}
     void setForce(int, float) {}
+    bool setResistance(int, float, float) { return false; }
     const char *axisName(int, int) { return "Aucun"; }
     std::string buttonName(int, int) { return "Aucun"; }
 }

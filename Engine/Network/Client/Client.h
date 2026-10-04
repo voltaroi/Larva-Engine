@@ -48,6 +48,7 @@ private:
     std::string externalPending;
 
     SOCKET clientSocket = INVALID_SOCKET;
+    bool wsaStarted = false; // WSAStartup fait par connectToServer, à rendre à la déconnexion
     std::atomic<bool> running{false};
     std::thread receiveThread;
 };

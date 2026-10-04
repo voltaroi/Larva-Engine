@@ -73,6 +73,7 @@ bool Client::connectToServer(const std::string &host, int port) {
 
     std::cout << "Connected to server " << host << ":" << port << " (socket=" << clientSocket << ")" << std::endl;
 
+    wsaStarted = true;
     running = true;
         receiveThread = std::thread(&Client::receiveLoop, this);
     return true;
@@ -135,7 +136,11 @@ void Client::disconnect() {
         receiveThread.join();
     }
     clientSocket = INVALID_SOCKET;
-    WSACleanup();
+    // Seulement si on avait ouvert Winsock : un WSACleanup de trop le fermerait pour tout le processus (Steam compris)
+    if (wsaStarted) {
+        WSACleanup();
+        wsaStarted = false;
+    }
 }
 
 std::vector<std::string> Client::pollMessages() {

@@ -299,7 +299,7 @@ namespace SteamNet
             return false;
         SteamNetworkingIdentity id = identityOf(steamId);
         EResult r = SteamAPI_ISteamNetworkingMessages_SendMessageToUser(SteamAPI_SteamNetworkingMessages_SteamAPI_v002(), id, data,
-                                                                       size, k_nSteamNetworkingSend_Reliable, CHANNEL);
+                                                                       size, k_nSteamNetworkingSend_ReliableNoNagle, CHANNEL);
         return r == k_EResultOK;
     }
 

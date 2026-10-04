@@ -12,7 +12,7 @@
 namespace Gamepad
 {
     const int MAX_AXES = 8;      // DirectInput : X Y Z Rx Ry Rz Curseur0 Curseur1 ; XInput : voir XAxis
-    const int MAX_BUTTONS = 32;
+    const int MAX_BUTTONS = 128;    // boîtiers à boutons des simulateurs (DirectInput : jusqu'à 128)
 
     // Manette XInput : axes et boutons
     enum XAxis { X_LEFT_X = 0, X_LEFT_Y, X_RIGHT_X, X_RIGHT_Y, X_LEFT_TRIGGER, X_RIGHT_TRIGGER };
@@ -48,6 +48,9 @@ namespace Gamepad
     void rumble(int device, float low, float high);
     // Retour de force d'un volant : force constante dans [-1, 1] (positif vers la droite), 0 = libre
     void setForce(int device, float force);
+    // Volant : ressort de rappel au centre et résistance à la rotation (amortisseur), gérés par le volant
+    // lui-même, chacun dans [0, 1]. Renvoie false si le volant ne gère pas ces effets.
+    bool setResistance(int device, float spring, float damper);
 
     const char *axisName(int device, int axis);
     std::string buttonName(int device, int button);
