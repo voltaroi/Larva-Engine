@@ -173,6 +173,7 @@ const int MAX_POINT_LIGHTS = 32;
 uniform int uPointCount;
 uniform vec4 uPointPos[MAX_POINT_LIGHTS];
 uniform vec3 uPointColor[MAX_POINT_LIGHTS];
+uniform vec4 uPointDir[MAX_POINT_LIGHTS]; // spot: xyz axis, w cosine of the half angle (<= -1: omnidirectional)
 // Physically based material (Model::setPBR) and object-space detail texture (Model::setDetail)
 uniform mat3 normalMatrix;
 uniform vec3 uObjectScale;
@@ -256,6 +257,17 @@ float envShadow(vec4 lightSpacePos, vec3 N, vec3 L)
     }
     float edge = min(min(c.x, c.y), min(1.0 - c.x, 1.0 - c.y));
     return shadow * smoothstep(0.0, 0.06, edge);
+}
+
+// Distance attenuation of point light i (Lp: unit vector towards it): inverse square, windowed to zero at the
+// radius. Spots (headlights) fall off more slowly and only light inside their cone.
+float pointAttenuation(int i, vec3 Lp, float d2, float r)
+{
+    float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+    float cone = uPointDir[i].w;
+    if (cone <= -1.0)
+        return window * window / (1.0 + d2);
+    return window * window / (1.0 + 0.004 * d2) * smoothstep(cone, cone + 0.12, dot(-Lp, uPointDir[i].xyz));
 }
 
 vec3 acesTonemap(vec3 x)
@@ -358,8 +370,7 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
             continue;
         float d = sqrt(d2);
         vec3 Lp = toLight / max(d, 0.0001);
-        float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
-        float att = window * window / (1.0 + d2);
+        float att = pointAttenuation(i, Lp, d2, r);
         float aL = clamp(a + 0.25 / (2.0 * max(d, 0.05)), 0.0, 1.0);
         color += uPointColor[i] * att * pbrLight(N, V, Lp, albedo, F0, rough, metal, aL);
         nearLight += uPointColor[i] * att;
@@ -421,9 +432,10 @@ vec4 environmentShade()
             continue;
         float d = sqrt(d2);
         vec3 Lp = toLight / max(d, 0.0001);
-        float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
-        float att = window * window / (1.0 + d2);
+        float att = pointAttenuation(i, Lp, d2, r);
         float nlp = max(dot(N, Lp), 0.0);
+        if (uPointDir[i].w > -1.0)
+            nlp = sqrt(nlp); // a low headlight still lights the road far ahead (grazing incidence)
         vec3 Hp = normalize(Lp + V);
         float sp = pow(max(dot(N, Hp), 0.0), uShininess) * (uShininess + 8.0) / 25.13;
         color += uPointColor[i] * att * nlp * (albedo + sp * uSpecular * mix(0.25, 1.0, fresnel));

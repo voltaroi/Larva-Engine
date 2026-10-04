@@ -67,8 +67,10 @@ public:
 
     // Point lights (environment lighting only, no shadows). posRadius: x, y, z, radius of influence for each
     // light; colors: linear HDR r, g, b (includes intensity). count = 0 turns them off (default).
+    // dirCone (optional): x, y, z axis and cosine of the half angle for each light. A cosine <= -1 (the default)
+    // is an omnidirectional light; otherwise the light is a spot with a slower falloff (headlights).
     static const int MAX_POINT_LIGHTS = 32;
-    static void SetPointLights(int count, const float *posRadius, const float *colors);
+    static void SetPointLights(int count, const float *posRadius, const float *colors, const float *dirCone = nullptr);
 
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);

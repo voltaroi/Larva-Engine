@@ -32,6 +32,7 @@ static Model::Environment g_environment;
 static int g_pointCount = 0;
 static float g_pointPos[Model::MAX_POINT_LIGHTS * 4];
 static float g_pointColor[Model::MAX_POINT_LIGHTS * 3];
+static float g_pointDir[Model::MAX_POINT_LIGHTS * 4];
 static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -74,6 +75,7 @@ struct ModelProgInfo
     GLint locEmissive = -1;
     GLint locPointCount = -1;
     GLint locPointPos = -1;
+    GLint locPointDir = -1;
     GLint locPointColor = -1;
     GLint locPBR = -1;
     GLint locRoughness = -1;
@@ -512,6 +514,7 @@ static GLuint createModelProgram()
     g_modelInfo.locEmissive = glGetUniformLocation(g_modelProgram, "uEmissive");
     g_modelInfo.locPointCount = glGetUniformLocation(g_modelProgram, "uPointCount");
     g_modelInfo.locPointPos = glGetUniformLocation(g_modelProgram, "uPointPos");
+    g_modelInfo.locPointDir = glGetUniformLocation(g_modelProgram, "uPointDir");
     g_modelInfo.locPointColor = glGetUniformLocation(g_modelProgram, "uPointColor");
     g_modelInfo.locPBR = glGetUniformLocation(g_modelProgram, "uPBR");
     g_modelInfo.locRoughness = glGetUniformLocation(g_modelProgram, "uRoughness");
@@ -1272,6 +1275,8 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
             glUniform4fv(g_modelInfo.locPointPos, g_pointCount, g_pointPos);
         if (g_modelInfo.locPointColor >= 0)
             glUniform3fv(g_modelInfo.locPointColor, g_pointCount, g_pointColor);
+        if (g_modelInfo.locPointDir >= 0)
+            glUniform4fv(g_modelInfo.locPointDir, g_pointCount, g_pointDir);
     }
     glUseProgram(0);
 }
@@ -1356,9 +1361,12 @@ bool Model::createFromData(const std::vector<SimpleVertex> &verts, const std::ve
     return true;
 }
 
-void Model::SetPointLights(int count, const float *posRadius, const float *colors)
+void Model::SetPointLights(int count, const float *posRadius, const float *colors, const float *dirCone)
 {
     g_pointCount = std::max(0, std::min(MAX_POINT_LIGHTS, count));
+    for (int i = 0; i < g_pointCount; ++i)
+        for (int k = 0; k < 4; ++k)
+            g_pointDir[i * 4 + k] = dirCone ? dirCone[i * 4 + k] : (k == 3 ? -2.0f : 0.0f);
     for (int i = 0; i < g_pointCount * 4; ++i)
         g_pointPos[i] = posRadius[i];
     for (int i = 0; i < g_pointCount * 3; ++i)
