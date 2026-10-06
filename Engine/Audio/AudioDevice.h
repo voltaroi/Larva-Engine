@@ -37,6 +37,8 @@ public:
     void setListenerGain(float gain);
 
     // Réglages rapides d'une source
+    // Change le son joué en boucle par une source (elle repart du début)
+    static void setLoopBuffer(unsigned int source, unsigned int buffer);
     static void setGain(unsigned int source, float gain);
     static void setPitch(unsigned int source, float pitch);
     static void setPosition(unsigned int source, float x, float y, float z);

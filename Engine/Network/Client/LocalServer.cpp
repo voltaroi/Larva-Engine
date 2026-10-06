@@ -66,6 +66,9 @@ bool LocalServer::launch(const std::string &exeName, const std::vector<std::stri
         cmd += " " + a;
     STARTUPINFOA si{};
     si.cb = sizeof(si);
+    // Sa console s'ouvre réduite dans la barre des tâches, sans prendre la place du jeu à l'écran
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_SHOWMINNOACTIVE;
     if (!CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &serverProcess))
     {
         error = "Impossible de lancer " + exeName;
@@ -87,6 +90,8 @@ void LocalServer::stop()
     if (!started)
         return;
     TerminateProcess(serverProcess.hProcess, 0);
+    // (attendre sa fin : sinon, relancé aussitôt, le nouveau serveur trouve le port encore pris)
+    WaitForSingleObject(serverProcess.hProcess, 3000);
     CloseHandle(serverProcess.hProcess);
     CloseHandle(serverProcess.hThread);
     started = false;

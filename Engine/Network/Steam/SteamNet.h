@@ -38,6 +38,7 @@ namespace SteamNet
     uint64_t currentLobby();
     uint64_t lobbyOwner();
     int lobbyMemberCount();
+    bool lobbyHasMember(uint64_t steamId); // ce joueur est dans notre salon
     // Fenêtre Steam (Maj+Tab) pour inviter des amis dans le salon
     void openInviteOverlay();
     // Salon passé en ligne de commande par Steam ("+connect_lobby <id>") quand le jeu est lancé par une invitation

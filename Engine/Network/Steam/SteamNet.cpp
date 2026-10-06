@@ -278,6 +278,11 @@ namespace SteamNet
         return ready && lobby ? SteamAPI_ISteamMatchmaking_GetNumLobbyMembers(SteamAPI_SteamMatchmaking_v009(), lobby) : 0;
     }
 
+    bool lobbyHasMember(uint64_t steamId)
+    {
+        return ready && inLobby(steamId);
+    }
+
     void openInviteOverlay()
     {
         if (ready && lobby)
@@ -339,6 +344,7 @@ namespace SteamNet
     uint64_t currentLobby() { return 0; }
     uint64_t lobbyOwner() { return 0; }
     int lobbyMemberCount() { return 0; }
+    bool lobbyHasMember(uint64_t) { return false; }
     void openInviteOverlay() {}
     uint64_t lobbyFromCommandLine() { return 0; }
     bool send(uint64_t, const void *, uint32_t) { return false; }

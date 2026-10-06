@@ -149,6 +149,14 @@ void AudioDevice::setListenerGain(float gain)
         alListenerf(AL_GAIN, gain);
 }
 
+void AudioDevice::setLoopBuffer(unsigned int source, unsigned int buffer)
+{
+    if (!source)
+        return;
+    alSourceStop(source);
+    alSourcei(source, AL_BUFFER, buffer);
+    alSourcePlay(source);
+}
 void AudioDevice::setGain(unsigned int source, float gain) { alSourcef(source, AL_GAIN, gain); }
 void AudioDevice::setPitch(unsigned int source, float pitch) { alSourcef(source, AL_PITCH, pitch); }
 void AudioDevice::setPosition(unsigned int source, float x, float y, float z) { alSource3f(source, AL_POSITION, x, y, z); }
