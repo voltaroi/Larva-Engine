@@ -49,6 +49,17 @@ bool UIWidgets::button(const std::string &label, float x, float y, float w, floa
     bool hover = enabled && hovered(x, y, w, h);
     const float *c = !enabled ? t.buttonDisabled : (hover ? t.buttonHover : t.button);
     UI::drawBox(x, y, w, h, c[0], c[1], c[2], c[3], false, t.radius);
+    const UI::Style &st = UI::style();
+    if (st.buttonBar > 0.0f)
+    {
+        // Barre d'accent collée sous le bouton, dans le prolongement de son bord penché
+        float shift = std::min(st.maxShift, std::fabs(st.slant) * h);
+        if (w < shift * 2.0f || (st.uprightAbove > 0.0f && h >= st.uprightAbove))
+            shift = 0.0f;
+        const float lean = st.slant < 0.0f ? -1.0f : 1.0f;
+        const float bx = x - lean * (shift * 0.5f + std::fabs(st.slant) * st.buttonBar * 0.5f);
+        UI::drawBox(bx, y - st.buttonBar, w, st.buttonBar, t.accent[0], t.accent[1], t.accent[2], enabled ? t.accent[3] : t.accent[3] * 0.35f);
+    }
 
     // Texte réduit s'il déborde du bouton
     float scale = t.textScale;

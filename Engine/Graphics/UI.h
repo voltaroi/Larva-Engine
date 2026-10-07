@@ -33,6 +33,25 @@ private:
 	static float textA;
 
 public:
+	// Habillage optionnel de l'interface, choisi par le jeu (par défaut : rien ne change).
+	//  - slant : les boîtes deviennent des parallélogrammes aux angles vifs, penchés vers la droite (décalage du
+	//    haut par rapport au bas = slant x hauteur, borné par maxShift) ; sharp : angles vifs sans pencher
+	//  - box, text, shape : filtres de couleur appliqués aux boîtes (drawBox), au texte (renderText) et aux
+	//    tracés (Draw2D), pour changer de palette sans retoucher chaque appel
+	//  - textHalo : liseré contrasté autour du texte, lisible sur un fond clair comme sur le décor
+	struct Style
+	{
+		float slant = 0.0f, maxShift = 0.0f;
+		float uprightAbove = 0.0f; // (hauteur à partir de laquelle une boîte reste d'aplomb : les fonds de panneau)
+		float viewScale = 1.0f;    // (échelle du dessin en cours : l'écran fait alors largeur / viewScale unités)
+		float buttonBar = 0.0f;    // (épaisseur de la barre d'accent sous chaque bouton, 0 : aucune)
+		bool sharp = false, textHalo = false;
+		void (*box)(float width, float height, float &r, float &g, float &b, float &a) = nullptr;
+		void (*text)(float &r, float &g, float &b, float &a) = nullptr;
+		void (*shape)(float &r, float &g, float &b, float &a) = nullptr;
+	};
+	static Style &style();
+
 	static void setColor(float r, float g, float b, float a);
 	static void loadfont(const char *fontPath);
 	static void renderText(std::string text, float x, float y, float scale);

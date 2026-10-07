@@ -12,6 +12,12 @@ float UI::textG = 1.0f;
 float UI::textB = 1.0f;
 float UI::textA = 1.0f;
 
+UI::Style &UI::style()
+{
+    static Style current;
+    return current;
+}
+
 void UI::setColor(float r, float g, float b, float a)
 {
     textR = r;
@@ -99,7 +105,42 @@ void UI::renderText(std::string text, float x, float y, float scale)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    glColor4f(textR, textG, textB, textA);
+    float cr = textR, cg = textG, cb = textB, ca = textA;
+    const Style &st = style();
+    if (st.text)
+        st.text(cr, cg, cb, ca);
+    if (st.textHalo && ca > 0.05f)
+    {
+        // Liseré : le même texte, décalé de part et d'autre, dans la teinte opposée (clair sous un texte sombre)
+        const bool dark = 0.3f * cr + 0.59f * cg + 0.11f * cb < 0.5f;
+        const float o = std::max(1.0f, 2.2f * scale);
+        static const float dir[4][2] = {{1.0f, 0.0f}, {-1.0f, 0.0f}, {0.0f, 1.0f}, {0.0f, -1.0f}};
+        glColor4f(dark ? 1.0f : 0.04f, dark ? 1.0f : 0.06f, dark ? 1.0f : 0.1f, 0.5f * ca);
+        for (int k = 0; k < 4; ++k)
+        {
+            float hx = x + dir[k][0] * o;
+            const float hy = y + dir[k][1] * o;
+            for (unsigned char c : text)
+            {
+                const UICharacter &ch = UICharactersData[c];
+                const float xpos = hx + ch.bearingX * scale, ypos = hy - ((float)ch.height - ch.bearingY) * scale;
+                const float w = ch.width * scale, h = ch.height * scale;
+                glBindTexture(GL_TEXTURE_2D, ch.textureID);
+                glBegin(GL_QUADS);
+                glTexCoord2f(0.0f, 1.0f);
+                glVertex2f(xpos, ypos);
+                glTexCoord2f(1.0f, 1.0f);
+                glVertex2f(xpos + w, ypos);
+                glTexCoord2f(1.0f, 0.0f);
+                glVertex2f(xpos + w, ypos + h);
+                glTexCoord2f(0.0f, 0.0f);
+                glVertex2f(xpos, ypos + h);
+                glEnd();
+                hx += (ch.advance >> 6) * scale;
+            }
+        }
+    }
+    glColor4f(cr, cg, cb, ca);
 
     for (unsigned char c : text)
     {
@@ -208,6 +249,52 @@ void UI::drawBox(float x, float y, float width, float height, float r, float g, 
     }
 
     const int numSegments = 20;
+
+    const Style &st = style();
+    if (st.box)
+        st.box(width, height, r, g, b, alpha);
+    if (st.sharp || st.slant != 0.0f)
+    {
+        // Habillage du jeu : parallélogramme aux angles vifs, penché vers la droite. Une boîte qui touche un bord
+        // de l'écran y reste d'aplomb, une boîte trop étroite ou qui couvre tout l'écran ne penche pas.
+        GLint vp[4];
+        glGetIntegerv(GL_VIEWPORT, vp);
+        float shift = st.slant != 0.0f ? std::min(st.maxShift, std::fabs(st.slant) * height) : 0.0f;
+        if (st.viewScale > 0.0f)
+            vp[2] = (GLint)(vp[2] / st.viewScale);
+        if (width >= vp[2] * 0.98f || width < shift * 2.0f || (st.uprightAbove > 0.0f && height >= st.uprightAbove))
+            shift = 0.0f;
+        if (st.slant < 0.0f)
+            shift = -shift;
+        float l0 = actualX - shift * 0.5f, l1 = actualX + shift * 0.5f;
+        float r0 = actualX + width - shift * 0.5f, r1 = actualX + width + shift * 0.5f;
+        if (actualX <= 1.0f)
+            l0 = l1 = actualX;
+        if (actualX + width >= vp[2] - 1.0f)
+            r0 = r1 = actualX + width;
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glColor4f(r, g, b, alpha);
+        glBegin(GL_QUADS);
+        glVertex2f(l0, actualY);
+        glVertex2f(r0, actualY);
+        glVertex2f(r1, actualY + height);
+        glVertex2f(l1, actualY + height);
+        glEnd();
+        if (border)
+        {
+            glColor4f(0.0f, 0.0f, 0.0f, 1.0f);
+            glLineWidth(2.0f);
+            glBegin(GL_LINE_LOOP);
+            glVertex2f(l0, actualY);
+            glVertex2f(r0, actualY);
+            glVertex2f(r1, actualY + height);
+            glVertex2f(l1, actualY + height);
+            glEnd();
+        }
+        glDisable(GL_BLEND);
+        return;
+    }
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

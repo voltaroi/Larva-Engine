@@ -1,3 +1,4 @@
+#include "Engine/Graphics/UI.h"
 #include "Draw2D.h"
 #include <GL/glut.h>
 #include <cmath>
@@ -9,6 +10,8 @@ namespace Draw2D
         glDisable(GL_TEXTURE_2D);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        if (UI::style().shape) // (palette du jeu, voir UI::Style)
+            UI::style().shape(r, g, b, a);
         glColor4f(r, g, b, a);
     }
 
