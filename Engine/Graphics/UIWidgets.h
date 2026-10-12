@@ -25,6 +25,8 @@ public:
     };
 
     static Theme &theme() { return currentTheme; }
+    // Survol des boutons : du sang rouge coule sur le bouton au lieu du simple changement de couleur (désactivé par défaut)
+    static bool bloodHover;
 
     // --- Entrées ---
     // y en pixels depuis le bas de la fenêtre
@@ -36,6 +38,8 @@ public:
     static int mouseY() { return my; }
     static bool mouseDown() { return pressed; }
     static bool mouseReleased() { return released; }
+    // La souris vient d'arriver sur un bouton pendant cette image (ex. jouer un son de survol) ; à lire avant endFrame()
+    static bool hoverStarted() { return hoverNew; }
     static bool hovered(float x, float y, float w, float h);
     // Relâchement du clic au-dessus de la zone pendant cette image
     static bool clicked(float x, float y, float w, float h);
@@ -45,16 +49,20 @@ public:
     // Bouton flèche (dir -1 gauche, +1 droite) : triangle dessiné, sans dépendre des glyphes de la police
     static bool arrowButton(int dir, float x, float y, float w, float h, bool enabled = true);
     // Valeur dans [0, 1] affichée en pourcentage ; renvoie true si elle a changé
-    static bool slider(const std::string &label, float &value, float x, float y, float w, float labelWidth = 220.0f);
+    // valueText : texte affiché à droite de la barre à la place du pourcentage
+    static bool slider(const std::string &label, float &value, float x, float y, float w, float labelWidth = 220.0f, const std::string &valueText = "");
     // Un curseur vient d'être relâché (ex. jouer un son d'aperçu du volume)
     static bool sliderReleased();
 
     static void centeredText(const std::string &text, float cx, float y, float scale);
 
 private:
+    static void drawBlood(float x, float y, float w, float h, bool hover);
     static Theme currentTheme;
     static int mx, my;
     static bool pressed, released;
+    static bool hoverNew, hoverSeen;
+    static unsigned long long hoverKey;
     static const float *activeSlider;
 };
 

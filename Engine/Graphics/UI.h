@@ -53,7 +53,8 @@ public:
 	static Style &style();
 
 	static void setColor(float r, float g, float b, float a);
-	static void loadfont(const char *fontPath);
+	// pixelSize : hauteur de rendu des glyphes (48 par défaut) ; plus grand pour une police dont les lettres sont petites dans leur cadre
+	static void loadfont(const char *fontPath, int pixelSize = 48);
 	static void renderText(std::string text, float x, float y, float scale);
 	static float getTextWidth(std::string text, float scale);
 	static void drawText(float x, float y, const char *text, void *font = GLUT_BITMAP_HELVETICA_18);

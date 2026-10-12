@@ -11,6 +11,12 @@ out vec4 FragColor;
 
 uniform vec3 objectColor;
 uniform float objectAlpha;
+// Instanced draws (Model::drawInstanced) carry colour and material per instance
+uniform bool uInstanced;
+flat in vec4 InstColor;
+flat in vec3 InstMaterial; // specular, shininess, emissive
+vec3 gObjectColor;
+float gObjectAlpha, gSpecular, gShininess, gEmissive;
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 uniform vec3 lightColor;
@@ -122,7 +128,7 @@ float esmShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
 vec4 legacyShade()
 {
     vec4 texColor = texture(diffuseTexture, TexCoord);
-    vec3 baseColor = hasTexture ? texColor.rgb : objectColor;
+    vec3 baseColor = hasTexture ? texColor.rgb : gObjectColor;
     
     float ambientStrength = 0.3;
     vec3 ambient = ambientStrength * lightColor * baseColor;
@@ -143,7 +149,7 @@ vec4 legacyShade()
 
     float shadow = esmShadow(FragPosLightSpace, norm, lightDir);
     vec3 result = (ambient + (1.0 - shadow) * (diffuse + specular)) * baseColor;
-    return vec4(result, objectAlpha);
+    return vec4(result, gObjectAlpha);
 }
 
 // ============================================================================
@@ -383,17 +389,17 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
     vec3 Fenv = envBRDFApprox(F0, rough, NoV);
     color += (albedo * (1.0 - metal) * ambient * (1.0 - Fenv) + envColor * Fenv) * cavity;
     color *= mix(0.55, 1.0, cavity); // deep grooves and seams also receive less direct light
-    color += albedo * uEmissive * 4.0 * cavity; // emissive surfaces: the cavity channel is their pattern (screens)
+    color += albedo * gEmissive * 4.0 * cavity; // emissive surfaces: the cavity channel is their pattern (screens)
 
     color = applyFog(color, V, L);
     if (!uLinearOutput)
         color = pow(acesTonemap(color), vec3(1.0 / 2.2));
-    return vec4(color, objectAlpha);
+    return vec4(color, gObjectAlpha);
 }
 
 vec4 environmentShade()
 {
-    vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : objectColor;
+    vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : gObjectColor;
     vec3 albedo = pow(base, vec3(2.2));
 
     vec3 N = normalize(Normal);
@@ -416,11 +422,11 @@ vec4 environmentShade()
 
     vec3 H = normalize(L + V);
     float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
-    float spec = pow(max(dot(N, H), 0.0), uShininess) * (uShininess + 8.0) / 25.13;
-    vec3 specular = uSunColor * spec * uSpecular * mix(0.25, 1.0, fresnel) * ndl * visibility;
-    vec3 reflection = envSky(reflect(-V, N)) * fresnel * uSpecular * 0.4;
+    float spec = pow(max(dot(N, H), 0.0), gShininess) * (gShininess + 8.0) / 25.13;
+    vec3 specular = uSunColor * spec * gSpecular * mix(0.25, 1.0, fresnel) * ndl * visibility;
+    vec3 reflection = envSky(reflect(-V, N)) * fresnel * gSpecular * 0.4;
 
-    vec3 color = albedo * (direct + ambient) + specular + reflection + albedo * uEmissive * 4.0;
+    vec3 color = albedo * (direct + ambient) + specular + reflection + albedo * gEmissive * 4.0;
 
     // Point lights: inverse square falloff, smoothly windowed to zero at the radius
     for (int i = 0; i < uPointCount; ++i)
@@ -437,17 +443,22 @@ vec4 environmentShade()
         if (uPointDir[i].w > -1.0)
             nlp = sqrt(nlp); // a low headlight still lights the road far ahead (grazing incidence)
         vec3 Hp = normalize(Lp + V);
-        float sp = pow(max(dot(N, Hp), 0.0), uShininess) * (uShininess + 8.0) / 25.13;
-        color += uPointColor[i] * att * nlp * (albedo + sp * uSpecular * mix(0.25, 1.0, fresnel));
+        float sp = pow(max(dot(N, Hp), 0.0), gShininess) * (gShininess + 8.0) / 25.13;
+        color += uPointColor[i] * att * nlp * (albedo + sp * gSpecular * mix(0.25, 1.0, fresnel));
     }
 
     color = applyFog(color, V, L);
     if (!uLinearOutput)
         color = pow(acesTonemap(color), vec3(1.0 / 2.2));
-    return vec4(color, objectAlpha);
+    return vec4(color, gObjectAlpha);
 }
 
 void main()
 {
+    gObjectColor = uInstanced ? InstColor.rgb : objectColor;
+    gObjectAlpha = uInstanced ? InstColor.a : objectAlpha;
+    gSpecular = uInstanced ? InstMaterial.x : uSpecular;
+    gShininess = uInstanced ? InstMaterial.y : uShininess;
+    gEmissive = uInstanced ? InstMaterial.z : uEmissive;
     FragColor = (uEnv == 1) ? environmentShade() : legacyShade();
 }

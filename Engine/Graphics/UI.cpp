@@ -26,7 +26,7 @@ void UI::setColor(float r, float g, float b, float a)
     textA = a;
 }
 
-void UI::loadfont(const char *fontPath)
+void UI::loadfont(const char *fontPath, int pixelSize)
 {
     FT_Library ft;
     if (FT_Init_FreeType(&ft))
@@ -52,7 +52,7 @@ void UI::loadfont(const char *fontPath)
         }
     }
 
-    FT_Set_Pixel_Sizes(face, 0, 48);
+    FT_Set_Pixel_Sizes(face, 0, pixelSize);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
     for (unsigned char c = 0; c < 128; c++)
@@ -147,7 +147,7 @@ void UI::renderText(std::string text, float x, float y, float scale)
         UICharacter ch = UICharactersData[c];
 
         float xpos = x + ch.bearingX * scale;
-        float ypos = y - (ch.height - ch.bearingY) * scale;
+        float ypos = y - ((float)ch.height - ch.bearingY) * scale; // (float) : height est non signe, '-' '+' ''' ont bearingY > height
 
         float w = ch.width * scale;
         float h = ch.height * scale;

@@ -39,6 +39,16 @@ public:
 
     void draw();
 
+    // Many copies of the model in one draw call: each instance has its own matrix (column-major), colour and material.
+    // Texture, detail map and PBR are not used. Works in the shadow pass as well.
+    struct Instance
+    {
+        float model[16];
+        float color[4];
+        float material[4]; // specular, shininess, emissive, unused
+    };
+    void drawInstanced(const Instance *instances, int count);
+
     void setPosition(float x, float y, float z);
     void setScale(float sx, float sy, float sz);
     void setColor(float r, float g, float b);

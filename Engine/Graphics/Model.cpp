@@ -1213,6 +1213,73 @@ void Model::draw()
     glUseProgram(0);
 }
 
+void Model::drawInstanced(const Instance *instances, int count)
+{
+    if (count <= 0 || !instances)
+        return;
+    static GLuint instanceVBO = 0;
+    if (!instanceVBO)
+        glGenBuffers(1, &instanceVBO);
+    GLint locInstanced = -1;
+    if (g_shadowPass)
+    {
+        GLuint shadowProg = createShadowProgram();
+        if (shadowProg == 0)
+            return;
+        static GLint shadowInstancedLoc = -2;
+        if (shadowInstancedLoc == -2)
+            shadowInstancedLoc = glGetUniformLocation(shadowProg, "uInstanced");
+        locInstanced = shadowInstancedLoc;
+        if (g_shadowObjectAlphaLoc >= 0)
+            glUniform1f(g_shadowObjectAlphaLoc, 1.0f);
+    }
+    else
+    {
+        GLuint program = createModelProgram();
+        if (program == 0)
+            return;
+        glUseProgram(program);
+        static GLint modelInstancedLoc = -2;
+        if (modelInstancedLoc == -2)
+            modelInstancedLoc = glGetUniformLocation(program, "uInstanced");
+        locInstanced = modelInstancedLoc;
+        if (g_modelInfo.locPBR >= 0)
+            glUniform1i(g_modelInfo.locPBR, 0);
+        if (g_modelInfo.locHasDetail >= 0)
+            glUniform1i(g_modelInfo.locHasDetail, 0);
+        if (g_modelInfo.locHasTexture >= 0)
+            glUniform1i(g_modelInfo.locHasTexture, 0);
+    }
+    if (locInstanced < 0)
+        return; // shaders without instancing support
+    glUniform1i(locInstanced, 1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)count * sizeof(Instance), instances, GL_STREAM_DRAW);
+    for (auto &m : meshes)
+    {
+        if (!m.buffersInitialized)
+            continue;
+        glBindVertexArray(m.VAO);
+        glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+        for (int k = 0; k < 6; ++k)
+        {
+            glEnableVertexAttribArray(4 + k);
+            glVertexAttribPointer(4 + k, 4, GL_FLOAT, GL_FALSE, sizeof(Instance), (void *)(k * 4 * sizeof(float)));
+            glVertexAttribDivisor(4 + k, 1);
+        }
+        glDrawElementsInstanced(GL_TRIANGLES, (GLsizei)m.indices.size(), GL_UNSIGNED_INT, 0, count);
+        // draw() uses the same VAO without instancing
+        for (int k = 0; k < 6; ++k)
+            glDisableVertexAttribArray(4 + k);
+    }
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUniform1i(locInstanced, 0);
+    if (!g_shadowPass)
+        glUseProgram(0);
+}
+
 // Set view/projection matrices and some global uniforms once per frame
 void Model::SetFrameUniforms(const float view[16], const float projection[16])
 {
