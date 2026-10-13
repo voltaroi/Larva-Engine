@@ -86,6 +86,8 @@ bool ProjectConfig::loadFromJson(const std::string& jsonPath) {
             objectDir = value;
         } else if (key == "outputName") {
             outputName = value;
+        } else if (key == "icon") {
+            icon = value;
         } else if (key == "cppStandard") {
             cppStandard = value;
         } else if (key == "buildType") {

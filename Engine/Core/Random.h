@@ -11,6 +11,8 @@ public:
     explicit Random(unsigned int seed = 1u) : state(seed) {}
 
     void seed(unsigned int s) { state = s; }
+    // État courant : le redonner à seed() reprend la suite là où elle en était (sauvegardes)
+    unsigned int getState() const { return state; }
 
     unsigned int next()
     {

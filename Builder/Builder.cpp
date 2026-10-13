@@ -381,7 +381,10 @@ bool Builder::linkObjects(const std::vector<std::string>& objectFiles,
     
     // Utiliser un fichier de réponse unique par linkage
     fs::path outPath(outputFile);
-    std::string rspFile = outPath.stem().string() + ".link.rsp";
+    // (nom sans espace : le fichier est passé au compilateur sous la forme @fichier, qu'un espace couperait en deux)
+    std::string rspStem = outPath.stem().string();
+    std::replace(rspStem.begin(), rspStem.end(), ' ', '_');
+    std::string rspFile = rspStem + ".link.rsp";
     std::ofstream rsp(rspFile);
     if (!rsp) {
         error("Impossible de créer le fichier de réponse pour le linkage.");
@@ -391,6 +394,32 @@ bool Builder::linkObjects(const std::vector<std::string>& objectFiles,
     for (const auto& obj : objectFiles) {
         fs::path absObj = fs::absolute(fs::path(obj));
         rsp << '"' << absObj.generic_string() << '"' << "\n";
+    }
+    // Icône (Windows) : un fichier de ressources est généré puis compilé avec llvm-rc, et lié à l'exécutable.
+    // La ressource s'appelle GLUT_ICON : c'est celle que freeglut donne à ses fenêtres, et l'Explorateur prend
+    // la première icône de l'exécutable.
+    if (!config.icon.empty() && !isLinuxTarget(config)) {
+        fs::path ico = fs::absolute(fs::path(config.icon));
+        if (!fs::exists(ico)) {
+            error("Icone introuvable : " + ico.string());
+            return false;
+        }
+        std::string resStem = outPath.stem().string();
+        std::replace(resStem.begin(), resStem.end(), ' ', '_');
+        fs::path rcPath = fs::absolute(fs::path(config.objectDir) / (resStem + ".icon.rc"));
+        fs::path resPath = fs::absolute(fs::path(config.objectDir) / (resStem + ".icon.res"));
+        createDirectory(rcPath.parent_path().string());
+        {
+            std::ofstream rc(rcPath);
+            rc << "GLUT_ICON ICON \"" << ico.generic_string() << "\"\n";
+        }
+        fs::path rcTool = fs::absolute(fs::path(compilerPathForTarget(config))).parent_path() / "llvm-rc.exe";
+        // (deux guillemets seulement dans la commande : au-delà, cmd retire le premier et le dernier)
+        if (!executeCommand('"' + rcTool.make_preferred().string() + "\" /fo " + resPath.make_preferred().string() + " " + rcPath.make_preferred().string())) {
+            error("Echec de la compilation de l'icone (chemin du dossier objet sans espace requis).");
+            return false;
+        }
+        rsp << '"' << resPath.generic_string() << '"' << "\n";
     }
     // Output
     fs::path absOut = fs::absolute(fs::path(outputFile));

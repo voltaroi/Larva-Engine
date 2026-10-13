@@ -25,6 +25,7 @@ struct ProjectConfig {
     std::string outputDir;
     std::string objectDir;
     std::string outputName;
+    std::string icon; // (Windows) fichier .ico incrusté dans l'exécutable : icône du fichier et de la fenêtre
     
     std::vector<std::string> sourceFiles;
     std::vector<std::string> includeDirs;
