@@ -22,6 +22,7 @@ namespace SteamNet
 #endif
 #include <windows.h>
 #include <cstdio>
+#include <algorithm>
 #include <cstdlib>
 #include <vector>
 
@@ -51,6 +52,32 @@ namespace SteamNet
                 if (SteamAPI_ISteamMatchmaking_GetLobbyMemberByIndex(mm, lobby, i) == steamId)
                     return true;
             return false;
+        }
+
+        // Demandes de session refusées faute d'être (encore) dans le salon : acceptées si le joueur y entre
+        std::vector<uint64_t> waitingPeers;
+
+        bool isFriend(uint64_t steamId)
+        {
+            return SteamAPI_ISteamFriends_HasFriend(SteamAPI_SteamFriends_v018(), steamId, k_EFriendFlagImmediate);
+        }
+
+        void acceptPeer(uint64_t peer)
+        {
+            SteamNetworkingIdentity id = identityOf(peer);
+            SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser(SteamAPI_SteamNetworkingMessages_SteamAPI_v002(), id);
+        }
+
+        // La session avec ce joueur est ouverte (ou en train de s'ouvrir)
+        bool sessionAlive(uint64_t peer)
+        {
+            SteamNetworkingIdentity id = identityOf(peer);
+            SteamNetConnectionInfo_t info;
+            SteamNetConnectionRealTimeStatus_t status;
+            ESteamNetworkingConnectionState s = SteamAPI_ISteamNetworkingMessages_GetSessionConnectionInfo(
+                SteamAPI_SteamNetworkingMessages_SteamAPI_v002(), id, &info, &status);
+            return s == k_ESteamNetworkingConnectionState_Connecting || s == k_ESteamNetworkingConnectionState_FindingRoute ||
+                   s == k_ESteamNetworkingConnectionState_Connected;
         }
 
         void enteredLobby(uint64_t id, bool ok)
@@ -91,6 +118,12 @@ namespace SteamNet
                     break;
                 if (e->m_rgfChatMemberStateChange & k_EChatMemberStateChangeEntered)
                 {
+                    auto w = std::find(waitingPeers.begin(), waitingPeers.end(), (uint64_t)e->m_ulSteamIDUserChanged);
+                    if (w != waitingPeers.end())
+                    {
+                        waitingPeers.erase(w);
+                        acceptPeer(e->m_ulSteamIDUserChanged);
+                    }
                     if (onMemberJoined)
                         onMemberJoined(e->m_ulSteamIDUserChanged);
                 }
@@ -103,17 +136,23 @@ namespace SteamNet
                 const SteamNetworkingMessagesSessionRequest_t *e = (const SteamNetworkingMessagesSessionRequest_t *)data;
                 SteamNetworkingIdentity id = e->m_identityRemote;
                 uint64_t peer = SteamAPI_SteamNetworkingIdentity_GetSteamID64(&id);
-                bool accept = acceptSession ? acceptSession(peer) : inLobby(peer);
+                // Un joueur qui revient (après avoir quitté ou planté) peut envoyer ses données avant que son
+                // entrée dans le salon nous parvienne : les amis sont acceptés tout de suite, les autres à leur entrée
+                bool accept = acceptSession ? acceptSession(peer) : inLobby(peer) || isFriend(peer);
                 if (accept)
-                    SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser(SteamAPI_SteamNetworkingMessages_SteamAPI_v002(), id);
+                    acceptPeer(peer);
+                else if (std::find(waitingPeers.begin(), waitingPeers.end(), peer) == waitingPeers.end())
+                    waitingPeers.push_back(peer);
                 break;
             }
             case SteamNetworkingMessagesSessionFailed_t::k_iCallback:
             {
                 const SteamNetworkingMessagesSessionFailed_t *e = (const SteamNetworkingMessagesSessionFailed_t *)data;
                 SteamNetworkingIdentity id = e->m_info.m_identityRemote;
-                if (onSessionFailed)
-                    onSessionFailed(SteamAPI_SteamNetworkingIdentity_GetSteamID64(&id));
+                uint64_t peer = SteamAPI_SteamNetworkingIdentity_GetSteamID64(&id);
+                // Échec d'une ancienne connexion (le joueur a relancé le jeu) alors que la nouvelle est ouverte : ignoré
+                if (onSessionFailed && !sessionAlive(peer))
+                    onSessionFailed(peer);
                 break;
             }
             }
@@ -264,6 +303,7 @@ namespace SteamNet
         SteamAPI_ISteamMatchmaking_LeaveLobby(SteamAPI_SteamMatchmaking_v009(), lobby);
         SteamAPI_ISteamFriends_ClearRichPresence(SteamAPI_SteamFriends_v018());
         lobby = 0;
+        waitingPeers.clear();
     }
 
     uint64_t currentLobby() { return lobby; }

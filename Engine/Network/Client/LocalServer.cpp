@@ -69,12 +69,27 @@ bool LocalServer::launch(const std::string &exeName, const std::vector<std::stri
     // Sa console s'ouvre réduite dans la barre des tâches, sans prendre la place du jeu à l'écran
     si.dwFlags = STARTF_USESHOWWINDOW;
     si.wShowWindow = SW_SHOWMINNOACTIVE;
-    if (!CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, nullptr, &si, &serverProcess))
+    if (!CreateProcessA(nullptr, &cmd[0], nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE | CREATE_SUSPENDED, nullptr, nullptr, &si, &serverProcess))
     {
         error = "Impossible de lancer " + exeName;
         return false;
     }
     started = true;
+
+    // Le serveur est rattaché au client par un "job" Windows : si le client plante ou est tué, Windows ferme
+    // le serveur aussi (sinon il resterait orphelin, avec l'ancienne partie, et occuperait le port)
+    static HANDLE job = nullptr;
+    if (!job)
+    {
+        job = CreateJobObjectA(nullptr, nullptr);
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if (job)
+            SetInformationJobObject(job, JobObjectExtendedLimitInformation, &limits, sizeof(limits));
+    }
+    if (job)
+        AssignProcessToJobObject(job, serverProcess.hProcess);
+    ResumeThread(serverProcess.hThread);
 
     static bool registered = false;
     if (!registered)
