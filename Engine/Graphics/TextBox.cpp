@@ -62,13 +62,17 @@ void TextBox::eraseSelection() {
     anchor = (size_t)-1;
 }
 
+std::string TextBox::shown() const {
+    return password ? std::string(text.size(), '*') : text;
+}
+
 // Index du caractère dont la frontière est la plus proche de l'abscisse mx
 size_t TextBox::indexAt(float mx) const {
     float rel = mx - (x + PAD) + scroll;
     size_t best = 0;
     float bestDist = 1e9f;
     for (size_t i = 0; i <= text.size(); ++i) {
-        float d = std::fabs(UI::getTextWidth(text.substr(0, i), TEXT_SCALE) - rel);
+        float d = std::fabs(UI::getTextWidth(shown().substr(0, i), TEXT_SCALE) - rel);
         if (d < bestDist) {
             bestDist = d;
             best = i;
@@ -97,7 +101,10 @@ void TextBox::draw() const {
         }
     }
 
-    glColor3f(1.0f, 1.0f, 1.0f);
+    if (dark)
+        glColor3f(0.07f, 0.08f, 0.115f);
+    else
+        glColor3f(1.0f, 1.0f, 1.0f);
     glBegin(GL_QUADS);
     glVertex2f(x, y);
     glVertex2f(x + width, y);
@@ -105,7 +112,10 @@ void TextBox::draw() const {
     glVertex2f(x, y + height);
     glEnd();
 
-    glColor3f(focused ? 0.0f : 0.3f, 0.3f, 0.3f);
+    if (dark)
+        glColor3f(focused ? 0.30f : 0.22f, focused ? 0.55f : 0.25f, focused ? 1.0f : 0.34f);
+    else
+        glColor3f(focused ? 0.0f : 0.3f, 0.3f, 0.3f);
     glLineWidth(focused ? 2.0f : 1.0f);
     glBegin(GL_LINE_LOOP);
     glVertex2f(x, y);
@@ -116,8 +126,9 @@ void TextBox::draw() const {
 
     // Le texte défile pour garder le curseur visible
     float visible = width - 2.0f * PAD;
-    float caretW = UI::getTextWidth(text.substr(0, cursor), TEXT_SCALE);
-    float totalW = UI::getTextWidth(text, TEXT_SCALE);
+    const std::string display = shown();
+    float caretW = UI::getTextWidth(display.substr(0, cursor), TEXT_SCALE);
+    float totalW = UI::getTextWidth(display, TEXT_SCALE);
     if (totalW + 2.0f <= visible)
         scroll = 0.0f;
     else {
@@ -134,8 +145,12 @@ void TextBox::draw() const {
     glGetIntegerv(GL_SCISSOR_BOX, oldBox);
     GLint vp[4];
     glGetIntegerv(GL_VIEWPORT, vp);
-    GLint sx = std::max((GLint)vp[0], (GLint)(x + 2.0f)), sy = (GLint)y;
-    GLint ex = (GLint)(x + width - 2.0f), ey = (GLint)(y + height);
+    // Le champ peut être dessiné dans un repère mis à l'échelle (interface en lignes virtuelles) : la découpe se
+    // fait en pixels, d'après la matrice courante
+    GLfloat mv[16];
+    glGetFloatv(GL_MODELVIEW_MATRIX, mv);
+    GLint sx = std::max((GLint)vp[0], (GLint)((x + 2.0f) * mv[0] + mv[12])), sy = (GLint)(y * mv[5] + mv[13]);
+    GLint ex = (GLint)((x + width - 2.0f) * mv[0] + mv[12]), ey = (GLint)((y + height) * mv[5] + mv[13]);
     if (wasScissor) {
         sx = std::max(sx, oldBox[0]);
         sy = std::max(sy, oldBox[1]);
@@ -150,9 +165,12 @@ void TextBox::draw() const {
         // Texte sélectionné : surligné
         size_t a, b;
         selection(a, b);
-        float x0 = textX + UI::getTextWidth(text.substr(0, a), TEXT_SCALE);
-        float x1 = textX + UI::getTextWidth(text.substr(0, b), TEXT_SCALE);
-        glColor3f(0.55f, 0.75f, 1.0f);
+        float x0 = textX + UI::getTextWidth(display.substr(0, a), TEXT_SCALE);
+        float x1 = textX + UI::getTextWidth(display.substr(0, b), TEXT_SCALE);
+        if (dark)
+            glColor3f(0.20f, 0.36f, 0.68f);
+        else
+            glColor3f(0.55f, 0.75f, 1.0f);
         glBegin(GL_QUADS);
         glVertex2f(x0, y + 5.0f);
         glVertex2f(x1 + 2.0f, y + 5.0f);
@@ -161,9 +179,12 @@ void TextBox::draw() const {
         glEnd();
     }
 
-    UI::setColor(0.0f, 0.0f, 0.0f, 1.0f);
+    if (dark)
+        UI::setColor(0.95f, 0.96f, 1.0f, 1.0f);
+    else
+        UI::setColor(0.0f, 0.0f, 0.0f, 1.0f);
     float textY = y + (height / 2.0f) - 8.0f;
-    UI::renderText(text, textX, textY, TEXT_SCALE);
+    UI::renderText(display, textX, textY, TEXT_SCALE);
 
     // Barre du curseur : clignote, mais reste allumée juste après une action
     if (focused) {
@@ -171,7 +192,10 @@ void TextBox::draw() const {
         bool on = t < 0.5f || std::fmod(t, 1.0f) < 0.55f;
         if (on) {
             float cx = textX + caretW;
-            glColor3f(0.0f, 0.0f, 0.0f);
+            if (dark)
+                glColor3f(0.95f, 0.96f, 1.0f);
+            else
+                glColor3f(0.0f, 0.0f, 0.0f);
             glLineWidth(2.0f);
             glBegin(GL_LINES);
             glVertex2f(cx, y + 6.0f);
@@ -215,6 +239,8 @@ void TextBox::handleKey(unsigned char key) {
         touch();
         return;
     }
+    if ((key == 3 || key == 24) && password)
+        return;                  // un mot de passe ne part pas dans le presse-papiers
     if (key == 3 || key == 24) { // Ctrl+C, Ctrl+X : la sélection, ou tout le champ s'il n'y en a pas
         size_t a = 0, b = text.size();
         if (hasSelection())

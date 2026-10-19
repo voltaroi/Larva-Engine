@@ -10,7 +10,7 @@ class ServerChat;  // Forward declaration
 
 class Server : public EventEmitter {
 public:
-    bool start(int port);
+    bool start(int port, bool localOnly = false); // localOnly : n'accepte que les connexions de ce PC (127.0.0.1)
     void broadcast(const std::string &msg);
     bool sendTo(int clientId, const std::string &msg);
     void broadcastEvent(const std::string &eventName, const JsonValue &data);

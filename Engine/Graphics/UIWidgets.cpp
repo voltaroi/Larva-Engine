@@ -16,6 +16,9 @@ int UIWidgets::my = 0;
 bool UIWidgets::pressed = false;
 bool UIWidgets::released = false;
 const float *UIWidgets::activeSlider = nullptr;
+bool UIWidgets::modalWanted = false;
+bool UIWidgets::modalActive = false;
+bool UIWidgets::inModal = false;
 
 void UIWidgets::setMouse(int x, int y)
 {
@@ -40,10 +43,19 @@ void UIWidgets::endFrame()
     if (!hoverSeen)
         hoverKey = 0;
     hoverSeen = hoverNew = false;
+    modalActive = modalWanted;
+    modalWanted = inModal = false;
+}
+
+void UIWidgets::beginModal()
+{
+    modalWanted = inModal = true;
 }
 
 bool UIWidgets::hovered(float x, float y, float w, float h)
 {
+    if (blocked())
+        return false;
     return mx >= x && mx <= x + w && my >= y && my <= y + h;
 }
 
@@ -188,9 +200,9 @@ bool UIWidgets::slider(const std::string &label, float &value, float x, float y,
     const Theme &t = currentTheme;
     UI::renderText(label, x, y + 2, 0.45f);
     float bx = x + labelWidth, bw = w - labelWidth - 80, by = y + 4, bh = 14;
-    bool hover = mx >= bx - 12 && mx <= bx + bw + 12 && my >= y - 8 && my <= y + 30;
+    bool hover = !blocked() && mx >= bx - 12 && mx <= bx + bw + 12 && my >= y - 8 && my <= y + 30;
     bool changed = false;
-    if (pressed && (activeSlider == &value || (activeSlider == nullptr && hover)))
+    if (pressed && !blocked() && (activeSlider == &value || (activeSlider == nullptr && hover)))
     {
         activeSlider = &value;
         float v = std::max(0.0f, std::min(1.0f, (mx - bx) / bw));

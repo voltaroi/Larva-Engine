@@ -13,12 +13,12 @@
 ## Engine layout
 | Folder | Contents |
 |--------|----------|
-| `Engine/Core` | `MathUtils` (angles, clamp, damping), `Random` (deterministic generator), `Spline` (centripetal Catmull-Rom, constant-step resampling), `ConfigFile` (key/value settings file) |
+| `Engine/Core` | `MathUtils` (angles, clamp, damping), `Random` (deterministic generator), `Spline` (centripetal Catmull-Rom, constant-step resampling), `ConfigFile` (key/value settings file), `Sha256` |
 | `Engine/Physics` | `Collision2D` (circle vs segment / oriented box, spatial grid of segments) |
 | `Engine/Audio` | `AudioDevice` (OpenAL context, buffers, looping 3D sources, one-shot pool), `Synth` (procedural sound: filters, tones, engine loop, rumble, impact) |
 | `Engine/Graphics` | `Model`, `Camera`, `UI`, `UIWidgets` (immediate-mode buttons and sliders), `ShaderProgram` (GLSL from pak or disk with a shared prelude), `RenderTarget` (offscreen HDR / depth framebuffers), `ParticleSystem` (CPU particles + sorted billboard data), `MeshBuilder` (CPU mesh building and static batching) |
 | `Engine/Scene` | `Level` (level data and `.lvl` text format, no OpenGL: usable by the server), `LevelScene` (loads a level from `game.pak` or disk, draws it, collision boxes, raycast) |
-| `Engine/Network` | `Client` (line protocol, optional message queue), `Server`, `LocalServer` (launch the game server from the client to host a match) |
+| `Engine/Network` | `Client` (line protocol, optional message queue), `Server`, `LocalServer` (launch the game server from the client to host a match), `Steam/SteamNet`, `Online` (one interface for Steam or the home-made Larva Online server: accounts, friends, lobbies, invites, relay, in-game friends panel — see `projects/online/README.md`) |
 
 New projects created with `create_project.bat` compile all of these folders.
 

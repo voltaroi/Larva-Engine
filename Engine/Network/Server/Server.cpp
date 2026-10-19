@@ -11,7 +11,7 @@
 #include <sstream>
 #include <cstdio>
 
-bool Server::start(int port) {
+bool Server::start(int port, bool localOnly) {
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
         std::cerr << "WSAStartup failed." << std::endl;
@@ -31,7 +31,7 @@ bool Server::start(int port) {
 
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_addr.s_addr = localOnly ? htonl(INADDR_LOOPBACK) : INADDR_ANY;
     serverAddr.sin_port = htons(port);
 
     if (bind(listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {

@@ -15,6 +15,8 @@ public:
     size_t maxLength = 0;     // 0 : pas de limite
     bool allSelected = false; // vrai quand tout le texte est sélectionné (Ctrl+A) : la prochaine frappe le remplace
     size_t cursor = 0;        // position du curseur dans le texte (0 .. text.size())
+    bool dark = false;        // style sombre (fond foncé, texte clair) pour les interfaces sombres
+    bool password = false;    // affiche des * à la place des caractères (et refuse Ctrl+C / Ctrl+X)
 
     std::function<void(const std::string&)> onTextChanged;
 
@@ -41,6 +43,7 @@ private:
     mutable bool dragging = false;
     mutable float lastActivity = 0.0f;  // dernière frappe/clic, pour le clignotement
     void sync() const;
+    std::string shown() const; // texte affiché (masqué pour un mot de passe)
     size_t indexAt(float mx) const;
     bool hasSelection() const;
     void selection(size_t &a, size_t &b) const;

@@ -56,6 +56,13 @@ public:
 
     static void centeredText(const std::string &text, float cx, float y, float scale);
 
+    // --- Fenêtre modale (dessinée par-dessus le reste, ex. le panneau d'amis Larva Online) ---
+    // Les widgets dessinés après beginModal() reçoivent la souris ; ceux dessinés avant (l'interface du jeu en dessous)
+    // l'ignorent tant que beginModal() est appelé à chaque image (effet à partir de l'image suivante)
+    static void beginModal();
+    // La souris est réservée à une fenêtre modale : les widgets ignorent survol et clics
+    static bool blocked() { return modalActive && !inModal; }
+
 private:
     static void drawBlood(float x, float y, float w, float h, bool hover);
     static Theme currentTheme;
@@ -64,6 +71,7 @@ private:
     static bool hoverNew, hoverSeen;
     static unsigned long long hoverKey;
     static const float *activeSlider;
+    static bool modalWanted, modalActive, inModal;
 };
 
 #endif
