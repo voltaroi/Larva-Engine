@@ -82,6 +82,45 @@ public:
     static const int MAX_POINT_LIGHTS = 32;
     static void SetPointLights(int count, const float *posRadius, const float *colors, const float *dirCone = nullptr);
 
+    // Point light shadows (environment lighting only, optional; the model shader must support them).
+    // Occlusion grid seen from above: width x height cells of cellSize metres, cell (0, 0) starting at (originX, originZ).
+    // cells: 4 floats per cell (row by row), two vertical obstacle bands [bottom, top] in metres (top <= bottom: none).
+    // The shader marches from each lit point towards each point light through the grid. cells = nullptr turns it off.
+    static void SetPointShadowGrid(const float *cells, int width, int height, float originX, float originZ, float cellSize);
+    // Turn the grid on or off without uploading it again (menus, editor...)
+    static void EnablePointShadowGrid(bool enabled);
+    // Bodies casting point light shadows: vertical capsules, 5 floats each (x, z, bottom y, top y, radius)
+    static const int MAX_SHADOW_CASTERS = 24;
+    static void SetShadowCasters(int count, const float *capsules);
+
+    // Point light shadow maps (environment lighting): real depth cube maps, one per shadowed light ("slot"), drawn by
+    // the caller from the light. Two sets of maps: set 0 is a cache the caller fills once with what never moves, set 1 is
+    // what the shader samples (CopyPointShadowCache, then the moving casters drawn on top). A light without a slot falls
+    // back on the grid above. Faces: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z.
+    static const int MAX_SHADOW_LAMPS = 16;
+    // Allocates the maps (lamps = 0 frees them). Returns false when the GPU cannot (the grid stays in use).
+    static bool SetupPointShadowMaps(int lamps, int resolution);
+    static int PointShadowLamps();
+    // Draw into one face of one slot: the next draw() / drawInstanced() calls render depth seen from the light.
+    // Geometry closer than clearRadius to the light is ignored (the fixture around the bulb, the machine it sits in).
+    static void BeginPointShadowFace(int set, int slot, int face, const float pos[3], float farDist, float clearRadius);
+    static void EndPointShadowFaces();
+    // Copies the cache (set 0) of a slot into the maps the shader reads (set 1); faceMask: bit k for face k
+    static void CopyPointShadowCache(int slot, int faceMask = 63);
+    // Camera of a face (to skip casters outside it): forward and up axes, and the tangent of the half angle
+    static void PointShadowFaceAxes(int face, float forward[3], float up[3], float &tanHalf);
+    // Light i of SetPointLights samples slot slotOfLight[i] (-1: none); slots: position and far distance of their light
+    static void SetPointShadowSlots(int count, const int *slotOfLight, const float *slotPosFar);
+    // Filter: 0 hard (4 taps), 1 soft (fixed width), 2 contact hardening (PCSS), 3 PCSS with more samples.
+    // lampSize: size of the lights in metres (the bigger, the softer the shadow far from its caster)
+    static void SetPointShadowFilter(int quality, float lampSize);
+    // Distance (m) from the camera within which the maps are filtered; farther, a cheaper filter, then the grid (0: no limit)
+    static void SetPointShadowRange(float meters);
+    // Turn the shadow maps on or off without freeing them
+    static void EnablePointShadowMaps(bool enabled);
+    // Brightness applied before tone mapping (1: unchanged)
+    static void SetExposure(float exposure);
+
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);
     // Physically based material (environment lighting only, opt-in): GGX specular, metallic workflow.

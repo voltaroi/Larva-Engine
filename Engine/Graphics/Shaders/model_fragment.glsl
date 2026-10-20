@@ -191,6 +191,277 @@ uniform sampler2D uDetail;
 uniform float uDetailScale;
 uniform float uDetailStrength;
 const float PI = 3.14159265;
+// Point light shadows (Model::SetPointShadowGrid / SetShadowCasters): occlusion grid seen from above (RGBA: two
+// obstacle bands [bottom, top] per cell, top <= bottom: none) and vertical capsules (characters)
+uniform bool uGridOn;
+uniform sampler2D uGrid;
+uniform vec4 uGridInfo; // origin x, origin z, cell size
+const int MAX_CASTERS = 24;
+uniform int uCasterCount;
+uniform vec4 uCaster[MAX_CASTERS]; // x, bottom y, z, radius
+uniform float uCasterTop[MAX_CASTERS];
+
+// Apparent size of a lamp (m): the penumbra at an obstacle grows with its distance to the lit point (a contact
+// shadow is sharp, a far one is soft)
+const float LAMP_SIZE = 0.4;
+
+// How deep (m, <= 0: not at all) the ray's height range [lo, hi] goes into the obstacle band o = [bottom, top]
+float bandDepth(vec2 o, float lo, float hi)
+{
+    return o.y > o.x ? min(hi, o.y) - max(lo, o.x) : -1.0;
+}
+
+// Visibility (0..1) of the point light at Lpos from the lit point P (normal N): walls, closed doors, raised floors
+// and objects of the grid, then the characters. An obstacle the ray only grazes (a corner, the top of a wall, the
+// edge of a table) lets part of the light through, over the width of the penumbra there.
+float pointShadow(vec3 P, vec3 N, vec3 Lpos)
+{
+    if (!uGridOn)
+        return 1.0;
+    vec3 start = P + N * 0.06;
+    float len = length(Lpos - start);
+    ivec2 size = textureSize(uGrid, 0);
+    vec2 a = (start.xz - uGridInfo.xy) / uGridInfo.z;
+    vec2 b = (Lpos.xz - uGridInfo.xy) / uGridInfo.z;
+    vec2 d = b - a;
+    ivec2 cell = ivec2(floor(a));
+    ivec2 last = ivec2(floor(b));
+    ivec2 stepDir = ivec2(d.x > 0.0 ? 1 : -1, d.y > 0.0 ? 1 : -1);
+    vec2 inv = vec2(abs(d.x) > 1e-6 ? 1.0 / abs(d.x) : 1e9, abs(d.y) > 1e-6 ? 1.0 / abs(d.y) : 1e9);
+    vec2 tMax = vec2(d.x > 0.0 ? (float(cell.x) + 1.0 - a.x) : (a.x - float(cell.x)),
+                     d.y > 0.0 ? (float(cell.y) + 1.0 - a.y) : (a.y - float(cell.y))) * inv;
+    float tEnter = 0.0;
+    float vis = 1.0, runCover = 0.0, runChord = 0.0;
+    // Not tested: the first cell (the lit surface itself) and any cell left within 25 cm of it, and the lamp's own
+    // metre of floor (its fixture, the machine it lights)
+    ivec2 lampCell = ivec2(floor(Lpos.xz));
+    for (int i = 0; i < 160; ++i)
+    {
+        if (cell == last)
+            break;
+        float tExit = min(min(tMax.x, tMax.y), 1.0);
+        bool blocked = false;
+        bool lampOwn = ivec2(floor(uGridInfo.xy + (vec2(cell) + 0.5) * uGridInfo.z)) == lampCell;
+        if (i > 0 && tExit * len > 0.25 && !lampOwn && cell.x >= 0 && cell.y >= 0 && cell.x < size.x && cell.y < size.y)
+        {
+            vec4 o = texelFetch(uGrid, cell, 0);
+            float ya = mix(start.y, Lpos.y, tEnter), yb = mix(start.y, Lpos.y, tExit);
+            float lo = min(ya, yb), hi = max(ya, yb);
+            float depth = max(bandDepth(o.xy, lo, hi), bandDepth(o.zw, lo, hi));
+            if (depth > 0.0)
+            {
+                // Across the obstacle (the blocked cells in a row): a ray clipping a corner crosses it on a short chord
+                runChord += (tExit - tEnter) * len;
+                depth = min(depth, runChord * 0.5);
+                float pen = max(LAMP_SIZE * 0.5 * (tEnter + tExit), 0.015);
+                runCover = max(runCover, smoothstep(0.0, pen, depth));
+                if (runCover > 0.99)
+                    return 0.0;
+                blocked = true;
+            }
+        }
+        if (!blocked)
+        {
+            vis *= 1.0 - runCover;
+            runCover = 0.0, runChord = 0.0;
+        }
+        if (tMax.x < tMax.y)
+        {
+            cell.x += stepDir.x;
+            tMax.x += inv.x;
+        }
+        else
+        {
+            cell.y += stepDir.y;
+            tMax.y += inv.y;
+        }
+        tEnter = tExit;
+        if (tEnter >= 1.0)
+            break;
+    }
+    vis *= 1.0 - runCover;
+    // Characters: the ray passes close to the axis of a capsule, within its height
+    vec2 sd = Lpos.xz - start.xz;
+    float len2 = max(dot(sd, sd), 1e-6);
+    for (int c = 0; c < uCasterCount; ++c)
+    {
+        vec4 k = uCaster[c];
+        vec2 axis = vec2(k.x, k.z);
+        // The lit point belongs to this body: no shadow of itself
+        if (distance(start.xz, axis) < k.w + 0.12 && start.y > k.y - 0.1 && start.y < uCasterTop[c] + 0.15)
+            continue;
+        float t = dot(axis - start.xz, sd) / len2;
+        if (t <= 0.0 || t >= 1.0)
+            continue;
+        float pen = LAMP_SIZE * t + 0.04;
+        float y = mix(start.y, Lpos.y, t);
+        float dist = distance(start.xz + sd * t, axis);
+        // A body is a column narrowing toward the head: soft sides, soft top
+        float side = 1.0 - smoothstep(k.w * 0.75 - pen * 0.5, k.w * 0.75 + pen * 0.5, dist);
+        float tall = smoothstep(k.y - pen * 0.5, k.y + pen * 0.5, y) * (1.0 - smoothstep(uCasterTop[c] - 0.15 - pen * 0.5, uCasterTop[c] - 0.15 + pen * 0.5, y));
+        vis *= 1.0 - 0.9 * side * tall;
+    }
+    return vis;
+}
+
+// Point light shadow maps (Model::SetupPointShadowMaps): for each slot, six faces of a depth cube map seen from its light
+// (depth = distance / far), in one texture array (layer = slot * 6 + face)
+const int MAX_SHADOW_LAMPS = 16;
+uniform bool uCubeOn;
+uniform sampler2DArrayShadow uCubeShadow; // hardware comparison, bilinear
+uniform sampler2DArray uCubeDepth;        // raw depth (blocker search)
+uniform vec4 uCubeInfo;                   // resolution, tangent of the half angle of a face, lamp size (m), filter quality
+uniform int uPointSlot[MAX_POINT_LIGHTS]; // slot of each point light, -1: none (grid)
+uniform vec4 uSlotLamp[MAX_SHADOW_LAMPS]; // position and far distance of the light of each slot
+uniform float uExposure;
+uniform float uShadowRange; // au-dela (m de la camera), la grille au lieu des cartes d'ombre
+
+const vec3 CUBE_F[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
+const vec3 CUBE_U[6] = vec3[6](vec3(0, 1, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(0, 0, 1), vec3(0, 1, 0), vec3(0, 1, 0));
+
+// Texture coordinates and layer of the direction v (from the light) in slot s
+vec3 cubeCoord(int s, vec3 v)
+{
+    vec3 a = abs(v);
+    int face;
+    float major;
+    if (a.x >= a.y && a.x >= a.z)
+    {
+        face = v.x > 0.0 ? 0 : 1;
+        major = a.x;
+    }
+    else if (a.y >= a.z)
+    {
+        face = v.y > 0.0 ? 2 : 3;
+        major = a.y;
+    }
+    else
+    {
+        face = v.z > 0.0 ? 4 : 5;
+        major = a.z;
+    }
+    vec3 F = CUBE_F[face], U = CUBE_U[face];
+    vec3 R = cross(F, U);
+    vec2 uv = vec2(dot(v, R), dot(v, U)) / (uCubeInfo.y * max(major, 1e-5)) * 0.5 + 0.5;
+    return vec3(uv, float(s * 6 + face));
+}
+
+// 1: the point Q is lit by the light of slot s (bilinear comparison: smooth at the scale of a texel)
+float cubeTest(int s, vec4 lamp, vec3 Q, float bias)
+{
+    vec3 v = Q - lamp.xyz;
+    float ref = (length(v) - bias) / lamp.w;
+    return texture(uCubeShadow, vec4(cubeCoord(s, v), ref));
+}
+
+float noiseIGN(vec2 p)
+{
+    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
+
+// Sample k of n spread evenly on a unit disk (golden angle spiral), turned by the angle a
+vec2 vogel(int k, int n, float a)
+{
+    float r = sqrt((float(k) + 0.5) / float(n));
+    float t = float(k) * 2.3999632 + a;
+    return vec2(cos(t), sin(t)) * r;
+}
+
+// Visibility (0..1) of the light of slot s from the lit point P (normal N). The filter samples points of the surface
+// around P (each one compared at its own distance: no acne on wide penumbras). Contact hardening (PCSS): the average
+// distance of the obstacles found around the ray gives the width of the penumbra, sharp at the foot of an obstacle,
+// soft far from it, wider for a bigger lamp.
+float cubeShadow(int s, vec3 P, vec3 N)
+{
+    vec4 lamp = uSlotLamp[s];
+    vec3 toP = P - lamp.xyz;
+    float dist = length(toP);
+    if (dist >= lamp.w)
+        return 1.0;
+    vec3 dir = toP / max(dist, 1e-4);
+    float texel = 2.0 * uCubeInfo.y * dist / uCubeInfo.x; // width of a texel at the lit point (m)
+    float ndl = clamp(-dot(N, dir), 0.0, 1.0);
+    vec3 Pb = P + N * texel * (0.8 + 1.5 * (1.0 - ndl));
+    float bias = 0.012 + texel * 0.6;
+    // Basis of the surface
+    vec3 b1 = normalize(cross(N, abs(N.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+    vec3 b2 = cross(N, b1);
+    float ang = noiseIGN(gl_FragCoord.xy) * 6.2831853;
+    int q = int(uCubeInfo.w + 0.5);
+    // Loin de la camera, un filtre plus simple (on n'y voit pas le detail de la penombre)
+    float camDist = length(viewPos - P);
+    if (camDist > uShadowRange * 0.5)
+        q = 0;
+    else if (camDist > uShadowRange * 0.25)
+        q = min(q, 1);
+    if (q == 0)
+    {
+        float sum = 0.0;
+        for (int k = 0; k < 4; ++k)
+        {
+            vec2 o = vogel(k, 4, ang) * texel;
+            sum += cubeTest(s, lamp, Pb + b1 * o.x + b2 * o.y, bias);
+        }
+        return sum * 0.25;
+    }
+    float radius = texel * 1.6;
+    int taps = 16; // multiple de 8 (voir plus bas)
+    if (q >= 2)
+    {
+        // Obstacles between the point and the light: those the light's disk can see around the ray
+        float halfLamp = uCubeInfo.z * 0.5;
+        float search = clamp(halfLamp * (dist / 0.6 - 1.0), texel * 2.0, 1.2);
+        vec3 t1 = normalize(cross(dir, abs(dir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+        vec3 t2 = cross(dir, t1);
+        float ref = (length(Pb - lamp.xyz) - bias) / lamp.w;
+        int searchTaps = q >= 3 ? 8 : 6;
+        float sumDepth = 0.0, found = 0.0;
+        for (int k = 0; k < searchTaps; ++k)
+        {
+            vec2 o = vogel(k, searchTaps, ang + 1.3) * search;
+            vec3 v = Pb + t1 * o.x + t2 * o.y - lamp.xyz;
+            float d = texture(uCubeDepth, cubeCoord(s, v)).r;
+            if (d < ref)
+                sumDepth += d, found += 1.0;
+        }
+        if (found < 0.5)
+            return 1.0;
+        float db = max(sumDepth / found * lamp.w, 0.05);
+        radius = clamp(halfLamp * (dist - db) / db, texel * 1.2, 1.5);
+        taps = q >= 3 ? 24 : 16;
+    }
+    // Les premiers echantillons (repartis sur tout le disque) tous dans l'ombre ou tous dans la lumiere : la plupart des
+    // points ne sont pas dans une penombre, inutile de faire le reste
+    float sum = 0.0;
+    const int FIRST = 8;
+    for (int k = 0; k < FIRST; ++k)
+    {
+        vec2 o = vogel(k * taps / FIRST, taps, ang) * radius;
+        sum += cubeTest(s, lamp, Pb + b1 * o.x + b2 * o.y, bias + length(o) * 0.05);
+    }
+    if (sum < 0.001 || sum > float(FIRST) - 0.001)
+        return sum / float(FIRST);
+    for (int k = 0; k < taps; ++k)
+    {
+        if (k % (taps / FIRST) == 0)
+            continue;
+        vec2 o = vogel(k, taps, ang) * radius;
+        sum += cubeTest(s, lamp, Pb + b1 * o.x + b2 * o.y, bias + length(o) * 0.05);
+    }
+    return sum / float(taps);
+}
+
+// Shadow of point light i: its shadow map if it has one, else the grid
+float lightShadow(int i, vec3 P, vec3 N)
+{
+    if (uCubeOn)
+    {
+        int s = uPointSlot[i];
+        if (s >= 0 && length(viewPos - P) < uShadowRange)
+            return cubeShadow(s, P, N);
+    }
+    return pointShadow(P, N, uPointPos[i].xyz);
+}
 
 float envHash(vec2 p)
 {
@@ -377,6 +648,14 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
         float d = sqrt(d2);
         vec3 Lp = toLight / max(d, 0.0001);
         float att = pointAttenuation(i, Lp, d2, r);
+        if (att < 0.0005)
+            continue;
+        if (dot(N, Lp) <= 0.0)
+        {
+            nearLight += uPointColor[i] * att; // de dos : pas de lumiere directe, donc pas d'ombre a chercher
+            continue;
+        }
+        att *= lightShadow(i, FragPos, N);
         float aL = clamp(a + 0.25 / (2.0 * max(d, 0.05)), 0.0, 1.0);
         color += uPointColor[i] * att * pbrLight(N, V, Lp, albedo, F0, rough, metal, aL);
         nearLight += uPointColor[i] * att;
@@ -391,7 +670,7 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
     color *= mix(0.55, 1.0, cavity); // deep grooves and seams also receive less direct light
     color += albedo * gEmissive * 4.0 * cavity; // emissive surfaces: the cavity channel is their pattern (screens)
 
-    color = applyFog(color, V, L);
+    color = applyFog(color, V, L) * uExposure;
     if (!uLinearOutput)
         color = pow(acesTonemap(color), vec3(1.0 / 2.2));
     return vec4(color, gObjectAlpha);
@@ -440,6 +719,9 @@ vec4 environmentShade()
         vec3 Lp = toLight / max(d, 0.0001);
         float att = pointAttenuation(i, Lp, d2, r);
         float nlp = max(dot(N, Lp), 0.0);
+        if (att * nlp < 0.0005)
+            continue;
+        att *= lightShadow(i, FragPos, N);
         if (uPointDir[i].w > -1.0)
             nlp = sqrt(nlp); // a low headlight still lights the road far ahead (grazing incidence)
         vec3 Hp = normalize(Lp + V);
@@ -447,7 +729,7 @@ vec4 environmentShade()
         color += uPointColor[i] * att * nlp * (albedo + sp * gSpecular * mix(0.25, 1.0, fresnel));
     }
 
-    color = applyFog(color, V, L);
+    color = applyFog(color, V, L) * uExposure;
     if (!uLinearOutput)
         color = pow(acesTonemap(color), vec3(1.0 / 2.2));
     return vec4(color, gObjectAlpha);

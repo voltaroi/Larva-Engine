@@ -32,7 +32,32 @@ static Model::Environment g_environment;
 static int g_pointCount = 0;
 static float g_pointPos[Model::MAX_POINT_LIGHTS * 4];
 static float g_pointColor[Model::MAX_POINT_LIGHTS * 3];
+// Point light shadows: occlusion grid (RGBA32F texture, two obstacle bands per cell) and shadow casting capsules
+static GLuint g_gridTexture = 0;
+static bool g_gridOn = false;
+static int g_gridW = 0, g_gridH = 0;
+static float g_gridOrigin[2] = {0.0f, 0.0f}, g_gridCell = 1.0f;
+static int g_casterCount = 0;
+static float g_caster[Model::MAX_SHADOW_CASTERS * 4];
+static float g_casterTop[Model::MAX_SHADOW_CASTERS];
 static float g_pointDir[Model::MAX_POINT_LIGHTS * 4];
+// Point light shadow maps: depth texture arrays (6 layers per slot), cache (0) and sampled (1)
+static GLuint g_cubeTex[2] = {0, 0};
+static GLuint g_cubeFBO[2] = {0, 0};
+static GLuint g_cubeSamplerCmp = 0, g_cubeSamplerRaw = 0;
+static GLuint g_cubeProgram = 0;
+static GLint g_cubeLocModel = -1, g_cubeLocAlpha = -1, g_cubeLocInstanced = -1, g_cubeLocViewProj = -1, g_cubeLocLamp = -1, g_cubeLocClear = -1;
+static int g_cubeLamps = 0, g_cubeRes = 0;
+static bool g_cubeOn = false;
+static bool g_cubePass = false;
+static GLint g_cubePrevFBO = 0;
+static bool g_cubePrevCull = false;
+static int g_cubeQuality = 2;
+static float g_cubeLampSize = 0.25f;
+static float g_shadowRange = 0.0f; // 0: no limit
+static int g_pointSlot[Model::MAX_POINT_LIGHTS];
+static float g_slotLamp[Model::MAX_SHADOW_LAMPS * 4];
+static float g_exposure = 1.0f;
 static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -85,6 +110,20 @@ struct ModelProgInfo
     GLint locDetailScale = -1;
     GLint locDetailStrength = -1;
     GLint locObjectScale = -1;
+    GLint locGridOn = -1;
+    GLint locGrid = -1;
+    GLint locGridInfo = -1;
+    GLint locCasterCount = -1;
+    GLint locCaster = -1;
+    GLint locCasterTop = -1;
+    GLint locCubeOn = -1;
+    GLint locCubeShadow = -1;
+    GLint locCubeDepth = -1;
+    GLint locCubeInfo = -1;
+    GLint locPointSlot = -1;
+    GLint locSlotLamp = -1;
+    GLint locExposure = -1;
+    GLint locShadowRange = -1;
 };
 static ModelProgInfo g_modelInfo;
 
@@ -524,6 +563,20 @@ static GLuint createModelProgram()
     g_modelInfo.locDetailScale = glGetUniformLocation(g_modelProgram, "uDetailScale");
     g_modelInfo.locDetailStrength = glGetUniformLocation(g_modelProgram, "uDetailStrength");
     g_modelInfo.locObjectScale = glGetUniformLocation(g_modelProgram, "uObjectScale");
+    g_modelInfo.locGridOn = glGetUniformLocation(g_modelProgram, "uGridOn");
+    g_modelInfo.locGrid = glGetUniformLocation(g_modelProgram, "uGrid");
+    g_modelInfo.locGridInfo = glGetUniformLocation(g_modelProgram, "uGridInfo");
+    g_modelInfo.locCasterCount = glGetUniformLocation(g_modelProgram, "uCasterCount");
+    g_modelInfo.locCaster = glGetUniformLocation(g_modelProgram, "uCaster");
+    g_modelInfo.locCasterTop = glGetUniformLocation(g_modelProgram, "uCasterTop");
+    g_modelInfo.locCubeOn = glGetUniformLocation(g_modelProgram, "uCubeOn");
+    g_modelInfo.locCubeShadow = glGetUniformLocation(g_modelProgram, "uCubeShadow");
+    g_modelInfo.locCubeDepth = glGetUniformLocation(g_modelProgram, "uCubeDepth");
+    g_modelInfo.locCubeInfo = glGetUniformLocation(g_modelProgram, "uCubeInfo");
+    g_modelInfo.locPointSlot = glGetUniformLocation(g_modelProgram, "uPointSlot");
+    g_modelInfo.locSlotLamp = glGetUniformLocation(g_modelProgram, "uSlotLamp");
+    g_modelInfo.locExposure = glGetUniformLocation(g_modelProgram, "uExposure");
+    g_modelInfo.locShadowRange = glGetUniformLocation(g_modelProgram, "uShadowRange");
     return g_modelProgram;
 }
 
@@ -1037,16 +1090,21 @@ void Model::draw()
     // Shadow pass: set model matrix and draw using same batching logic
     if (g_shadowPass)
     {
-        GLuint shadowProg = createShadowProgram();
-        if (shadowProg == 0)
-            return;
+        // Sun shadow map, or a face of a point light shadow map (BeginPointShadowFace)
+        GLint locModel = g_cubeLocModel, locAlpha = g_cubeLocAlpha;
+        if (!g_cubePass)
+        {
+            if (createShadowProgram() == 0)
+                return;
+            locModel = g_shadowModelLoc, locAlpha = g_shadowObjectAlphaLoc;
+        }
 
         // Pass model matrix and alpha
-        if (g_shadowModelLoc >= 0)
-            glUniformMatrix4fv(g_shadowModelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        if (locModel >= 0)
+            glUniformMatrix4fv(locModel, 1, GL_FALSE, glm::value_ptr(model));
         float alpha = useColorOverride ? overrideA : 1.0f;
-        if (g_shadowObjectAlphaLoc >= 0)
-            glUniform1f(g_shadowObjectAlphaLoc, alpha);
+        if (locAlpha >= 0)
+            glUniform1f(locAlpha, alpha);
 
         // Use same batch grouping but no textures needed for shadow shader
         for (auto &entry : batches)
@@ -1221,7 +1279,13 @@ void Model::drawInstanced(const Instance *instances, int count)
     if (!instanceVBO)
         glGenBuffers(1, &instanceVBO);
     GLint locInstanced = -1;
-    if (g_shadowPass)
+    if (g_shadowPass && g_cubePass)
+    {
+        locInstanced = g_cubeLocInstanced;
+        if (g_cubeLocAlpha >= 0)
+            glUniform1f(g_cubeLocAlpha, 1.0f);
+    }
+    else if (g_shadowPass)
     {
         GLuint shadowProg = createShadowProgram();
         if (shadowProg == 0)
@@ -1345,7 +1409,408 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         if (g_modelInfo.locPointDir >= 0)
             glUniform4fv(g_modelInfo.locPointDir, g_pointCount, g_pointDir);
     }
+    // Point light shadows: grid on texture unit 3, capsules as uniform arrays
+    const bool grid = e.enabled && g_gridOn && g_gridTexture != 0 && g_modelInfo.locGrid >= 0;
+    if (g_modelInfo.locGridOn >= 0)
+        glUniform1i(g_modelInfo.locGridOn, grid ? 1 : 0);
+    if (grid)
+    {
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, g_gridTexture);
+        glUniform1i(g_modelInfo.locGrid, 3);
+        glActiveTexture(GL_TEXTURE0);
+        if (g_modelInfo.locGridInfo >= 0)
+            glUniform4f(g_modelInfo.locGridInfo, g_gridOrigin[0], g_gridOrigin[1], g_gridCell, 0.0f);
+    }
+    if (g_modelInfo.locCasterCount >= 0)
+        glUniform1i(g_modelInfo.locCasterCount, grid ? g_casterCount : 0);
+    if (grid && g_casterCount > 0)
+    {
+        if (g_modelInfo.locCaster >= 0)
+            glUniform4fv(g_modelInfo.locCaster, g_casterCount, g_caster);
+        if (g_modelInfo.locCasterTop >= 0)
+            glUniform1fv(g_modelInfo.locCasterTop, g_casterCount, g_casterTop);
+    }
+    // Point light shadow maps: the same texture on units 6 (hardware comparison) and 7 (raw depth, blocker search)
+    const bool cube = e.enabled && g_cubeOn && g_cubeTex[1] != 0 && g_modelInfo.locCubeShadow >= 0;
+    if (g_modelInfo.locCubeOn >= 0)
+        glUniform1i(g_modelInfo.locCubeOn, cube ? 1 : 0);
+    if (cube)
+    {
+        glActiveTexture(GL_TEXTURE6);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, g_cubeTex[1]);
+        glBindSampler(6, g_cubeSamplerCmp);
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, g_cubeTex[1]);
+        glBindSampler(7, g_cubeSamplerRaw);
+        glActiveTexture(GL_TEXTURE0);
+        glUniform1i(g_modelInfo.locCubeShadow, 6);
+        if (g_modelInfo.locCubeDepth >= 0)
+            glUniform1i(g_modelInfo.locCubeDepth, 7);
+        float tanHalf = 1.0f;
+        float f[3], u[3];
+        Model::PointShadowFaceAxes(0, f, u, tanHalf);
+        if (g_modelInfo.locCubeInfo >= 0)
+            glUniform4f(g_modelInfo.locCubeInfo, (float)g_cubeRes, tanHalf, g_cubeLampSize, (float)g_cubeQuality);
+        if (g_modelInfo.locPointSlot >= 0)
+            glUniform1iv(g_modelInfo.locPointSlot, Model::MAX_POINT_LIGHTS, g_pointSlot);
+        if (g_modelInfo.locSlotLamp >= 0)
+            glUniform4fv(g_modelInfo.locSlotLamp, Model::MAX_SHADOW_LAMPS, g_slotLamp);
+    }
+    if (g_modelInfo.locShadowRange >= 0)
+        glUniform1f(g_modelInfo.locShadowRange, g_shadowRange > 0.0f ? g_shadowRange : 1e6f);
+    if (g_modelInfo.locExposure >= 0)
+        glUniform1f(g_modelInfo.locExposure, g_exposure);
     glUseProgram(0);
+}
+
+// ---------------------------------------------------------------------------
+//  Point light shadow maps
+// ---------------------------------------------------------------------------
+static const char *CUBE_VS = R"GLSL(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 4) in vec4 iModel0;
+layout(location = 5) in vec4 iModel1;
+layout(location = 6) in vec4 iModel2;
+layout(location = 7) in vec4 iModel3;
+uniform bool uInstanced;
+uniform mat4 model;
+uniform mat4 uViewProj;
+out vec3 vWorld;
+void main()
+{
+    vec4 w = (uInstanced ? mat4(iModel0, iModel1, iModel2, iModel3) : model) * vec4(aPos, 1.0);
+    vWorld = w.xyz;
+    gl_Position = uViewProj * w;
+}
+)GLSL";
+
+// Depth = distance to the light / far distance (linear: 16 bits are enough)
+static const char *CUBE_FS = R"GLSL(
+#version 330 core
+uniform vec4 uLamp; // position, far distance
+uniform float uClear;
+uniform float objectAlpha;
+in vec3 vWorld;
+void main()
+{
+    if (objectAlpha < 0.05)
+        discard;
+    float d = length(vWorld - uLamp.xyz);
+    if (d < uClear)
+        discard;
+    gl_FragDepth = clamp(d / uLamp.w, 0.0, 1.0);
+}
+)GLSL";
+
+static const float CUBE_FORWARD[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+static const float CUBE_UP[6][3] = {{0, 1, 0}, {0, 1, 0}, {0, 0, 1}, {0, 0, 1}, {0, 1, 0}, {0, 1, 0}};
+
+// Faces a little wider than 90 degrees: the filter of a point near an edge stays inside its face
+static float cubeTanHalf()
+{
+    return g_cubeRes > 0 ? 1.0f / (1.0f - 8.0f / (float)g_cubeRes) : 1.0f;
+}
+
+void Model::PointShadowFaceAxes(int face, float forward[3], float up[3], float &tanHalf)
+{
+    face = std::max(0, std::min(5, face));
+    for (int i = 0; i < 3; ++i)
+        forward[i] = CUBE_FORWARD[face][i], up[i] = CUBE_UP[face][i];
+    tanHalf = cubeTanHalf();
+}
+
+static GLuint createCubeProgram()
+{
+    if (g_cubeProgram)
+        return g_cubeProgram;
+    GLuint vs = compileShader(GL_VERTEX_SHADER, CUBE_VS);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, CUBE_FS);
+    if (!vs || !fs)
+    {
+        if (vs)
+            glDeleteShader(vs);
+        if (fs)
+            glDeleteShader(fs);
+        return 0;
+    }
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok)
+    {
+        char buf[1024];
+        glGetProgramInfoLog(prog, sizeof(buf), nullptr, buf);
+        std::cerr << "Point shadow shader link error: " << buf << std::endl;
+        glDeleteProgram(prog);
+        return 0;
+    }
+    g_cubeProgram = prog;
+    g_cubeLocModel = glGetUniformLocation(prog, "model");
+    g_cubeLocAlpha = glGetUniformLocation(prog, "objectAlpha");
+    g_cubeLocInstanced = glGetUniformLocation(prog, "uInstanced");
+    g_cubeLocViewProj = glGetUniformLocation(prog, "uViewProj");
+    g_cubeLocLamp = glGetUniformLocation(prog, "uLamp");
+    g_cubeLocClear = glGetUniformLocation(prog, "uClear");
+    return prog;
+}
+
+static void freeCubeMaps()
+{
+    for (int s = 0; s < 2; ++s)
+    {
+        if (g_cubeTex[s])
+            glDeleteTextures(1, &g_cubeTex[s]);
+        if (g_cubeFBO[s])
+            glDeleteFramebuffers(1, &g_cubeFBO[s]);
+        g_cubeTex[s] = g_cubeFBO[s] = 0;
+    }
+    g_cubeLamps = g_cubeRes = 0;
+}
+
+bool Model::SetupPointShadowMaps(int lamps, int resolution)
+{
+    lamps = std::max(0, std::min(MAX_SHADOW_LAMPS, lamps));
+    resolution = std::max(64, std::min(2048, resolution));
+    if (lamps == g_cubeLamps && (lamps == 0 || resolution == g_cubeRes))
+        return lamps == 0 || g_cubeTex[1] != 0;
+    freeCubeMaps();
+    for (int i = 0; i < MAX_POINT_LIGHTS; ++i)
+        g_pointSlot[i] = -1;
+    if (lamps == 0)
+        return true;
+    if (!GLEW_VERSION_3_3 || createCubeProgram() == 0)
+        return false;
+    if (!g_cubeSamplerCmp)
+    {
+        glGenSamplers(1, &g_cubeSamplerCmp);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(g_cubeSamplerCmp, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+        glGenSamplers(1, &g_cubeSamplerRaw);
+        glSamplerParameteri(g_cubeSamplerRaw, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glSamplerParameteri(g_cubeSamplerRaw, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glSamplerParameteri(g_cubeSamplerRaw, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(g_cubeSamplerRaw, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glSamplerParameteri(g_cubeSamplerRaw, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    }
+    while (glGetError() != GL_NO_ERROR)
+        ;
+    for (int s = 0; s < 2; ++s)
+    {
+        glGenTextures(1, &g_cubeTex[s]);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, g_cubeTex[s]);
+        glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT16, resolution, resolution, lamps * 6, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenFramebuffers(1, &g_cubeFBO[s]);
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    if (glGetError() != GL_NO_ERROR)
+    {
+        std::cerr << "Point shadow maps: allocation failed" << std::endl;
+        freeCubeMaps();
+        return false;
+    }
+    g_cubeLamps = lamps, g_cubeRes = resolution;
+    // Everything far (lit) until the caller draws the maps
+    GLint prevFBO = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+    for (int s = 0; s < 2; ++s)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[s]);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        for (int layer = 0; layer < lamps * 6; ++layer)
+        {
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[s], 0, layer);
+            glClearDepth(1.0);
+            glClear(GL_DEPTH_BUFFER_BIT);
+        }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO);
+    return true;
+}
+
+int Model::PointShadowLamps()
+{
+    return g_cubeLamps;
+}
+
+void Model::BeginPointShadowFace(int set, int slot, int face, const float pos[3], float farDist, float clearRadius)
+{
+    if (g_cubeLamps <= 0 || slot < 0 || slot >= g_cubeLamps || face < 0 || face > 5)
+        return;
+    set = set ? 1 : 0;
+    if (!g_cubePass)
+    {
+        glGetIntegerv(GL_VIEWPORT, g_prevViewport);
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &g_cubePrevFBO);
+        g_cubePrevCull = glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+        glUseProgram(g_cubeProgram);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[set]);
+    glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[set], 0, slot * 6 + face);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glViewport(0, 0, g_cubeRes, g_cubeRes);
+    glEnable(GL_DEPTH_TEST);
+    glDepthMask(GL_TRUE);
+    glDepthFunc(GL_LESS);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_BLEND);
+    if (set == 0)
+    {
+        glClearDepth(1.0);
+        glClear(GL_DEPTH_BUFFER_BIT);
+    }
+    // Camera of the face: rows right, up, -forward (OpenGL looks down -z)
+    const glm::vec3 F(CUBE_FORWARD[face][0], CUBE_FORWARD[face][1], CUBE_FORWARD[face][2]);
+    const glm::vec3 U(CUBE_UP[face][0], CUBE_UP[face][1], CUBE_UP[face][2]);
+    const glm::vec3 R = glm::cross(F, U);
+    const glm::vec3 L(pos[0], pos[1], pos[2]);
+    glm::mat4 view(1.0f);
+    for (int c = 0; c < 3; ++c)
+    {
+        view[c][0] = R[c];
+        view[c][1] = U[c];
+        view[c][2] = -F[c];
+    }
+    view[3][0] = -glm::dot(R, L);
+    view[3][1] = -glm::dot(U, L);
+    view[3][2] = glm::dot(F, L);
+    const float n = 0.02f, f = std::max(farDist, 0.5f), t = cubeTanHalf();
+    glm::mat4 proj(0.0f);
+    proj[0][0] = 1.0f / t;
+    proj[1][1] = 1.0f / t;
+    proj[2][2] = -(f + n) / (f - n);
+    proj[2][3] = -1.0f;
+    proj[3][2] = -2.0f * f * n / (f - n);
+    const glm::mat4 vp = proj * view;
+    glUniformMatrix4fv(g_cubeLocViewProj, 1, GL_FALSE, glm::value_ptr(vp));
+    glUniform4f(g_cubeLocLamp, pos[0], pos[1], pos[2], f);
+    glUniform1f(g_cubeLocClear, clearRadius);
+    g_cubePass = true;
+    g_shadowPass = true;
+}
+
+void Model::EndPointShadowFaces()
+{
+    if (!g_cubePass)
+        return;
+    g_cubePass = false;
+    g_shadowPass = false;
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)g_cubePrevFBO);
+    if (g_cubePrevCull)
+        glEnable(GL_CULL_FACE);
+    glUseProgram(0);
+    glViewport(g_prevViewport[0], g_prevViewport[1], g_prevViewport[2], g_prevViewport[3]);
+}
+
+void Model::CopyPointShadowCache(int slot, int faceMask)
+{
+    if (g_cubeLamps <= 0 || slot < 0 || slot >= g_cubeLamps || (faceMask & 63) == 0)
+        return;
+    GLint prevRead = 0, prevDraw = 0;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    for (int face = 0; face < 6; ++face)
+    {
+        if (!((faceMask >> face) & 1))
+            continue;
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, g_cubeFBO[0]);
+        glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[0], 0, slot * 6 + face);
+        glReadBuffer(GL_NONE);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_cubeFBO[1]);
+        glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[1], 0, slot * 6 + face);
+        glDrawBuffer(GL_NONE);
+        glBlitFramebuffer(0, 0, g_cubeRes, g_cubeRes, 0, 0, g_cubeRes, g_cubeRes, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+}
+
+void Model::SetPointShadowSlots(int count, const int *slotOfLight, const float *slotPosFar)
+{
+    for (int i = 0; i < MAX_POINT_LIGHTS; ++i)
+        g_pointSlot[i] = (slotOfLight && i < count && slotOfLight[i] < g_cubeLamps) ? slotOfLight[i] : -1;
+    if (slotPosFar)
+        for (int i = 0; i < g_cubeLamps * 4; ++i)
+            g_slotLamp[i] = slotPosFar[i];
+}
+
+void Model::SetPointShadowFilter(int quality, float lampSize)
+{
+    g_cubeQuality = std::max(0, std::min(3, quality));
+    g_cubeLampSize = std::max(0.0f, lampSize);
+}
+
+void Model::SetPointShadowRange(float meters)
+{
+    g_shadowRange = std::max(0.0f, meters);
+}
+
+void Model::EnablePointShadowMaps(bool enabled)
+{
+    g_cubeOn = enabled && g_cubeLamps > 0;
+}
+
+void Model::SetExposure(float exposure)
+{
+    g_exposure = std::max(0.05f, exposure);
+}
+
+void Model::SetPointShadowGrid(const float *cells, int width, int height, float originX, float originZ, float cellSize)
+{
+    if (!cells || width <= 0 || height <= 0)
+    {
+        g_gridOn = false;
+        return;
+    }
+    if (g_gridTexture == 0)
+        glGenTextures(1, &g_gridTexture);
+    glBindTexture(GL_TEXTURE_2D, g_gridTexture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, cells);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    g_gridW = width, g_gridH = height;
+    g_gridOrigin[0] = originX, g_gridOrigin[1] = originZ;
+    g_gridCell = cellSize > 0.0f ? cellSize : 1.0f;
+    g_gridOn = true;
+}
+
+void Model::EnablePointShadowGrid(bool enabled)
+{
+    g_gridOn = enabled && g_gridTexture != 0 && g_gridW > 0;
+}
+
+void Model::SetShadowCasters(int count, const float *capsules)
+{
+    g_casterCount = std::max(0, std::min(MAX_SHADOW_CASTERS, count));
+    for (int i = 0; i < g_casterCount; ++i)
+    {
+        const float *c = capsules + i * 5;
+        g_caster[i * 4 + 0] = c[0];
+        g_caster[i * 4 + 1] = c[2];
+        g_caster[i * 4 + 2] = c[1];
+        g_caster[i * 4 + 3] = c[4];
+        g_casterTop[i] = c[3];
+    }
 }
 
 // Static methods for shadow mapping
