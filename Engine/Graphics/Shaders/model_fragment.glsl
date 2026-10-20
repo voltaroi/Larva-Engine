@@ -368,9 +368,9 @@ vec2 vogel(int k, int n, float a)
 }
 
 // Visibility (0..1) of the light of slot s from the lit point P (normal N). The filter samples points of the surface
-// around P (each one compared at its own distance: no acne on wide penumbras). Contact hardening (PCSS): the average
-// distance of the obstacles found around the ray gives the width of the penumbra, sharp at the foot of an obstacle,
-// soft far from it, wider for a bigger lamp.
+// around P (each one compared at its own distance: no acne on wide penumbras). Penombre douce partout : sa largeur
+// grandit avec la distance a la lampe et la taille de la lampe (comme les ombres approchees de la grille), sans
+// recherche des obstacles (moins couteux, et plus de bord net au pied des obstacles proches de la lampe).
 float cubeShadow(int s, vec3 P, vec3 N)
 {
     vec4 lamp = uSlotLamp[s];
@@ -388,48 +388,14 @@ float cubeShadow(int s, vec3 P, vec3 N)
     vec3 b2 = cross(N, b1);
     float ang = noiseIGN(gl_FragCoord.xy) * 6.2831853;
     int q = int(uCubeInfo.w + 0.5);
-    // Loin de la camera, un filtre plus simple (on n'y voit pas le detail de la penombre)
+    // Loin de la camera, moins d'echantillons (on n'y voit pas le grain de la penombre)
     float camDist = length(viewPos - P);
     if (camDist > uShadowRange * 0.5)
         q = 0;
     else if (camDist > uShadowRange * 0.25)
         q = min(q, 1);
-    if (q == 0)
-    {
-        float sum = 0.0;
-        for (int k = 0; k < 4; ++k)
-        {
-            vec2 o = vogel(k, 4, ang) * texel;
-            sum += cubeTest(s, lamp, Pb + b1 * o.x + b2 * o.y, bias);
-        }
-        return sum * 0.25;
-    }
-    float radius = texel * 1.6;
-    int taps = 16; // multiple de 8 (voir plus bas)
-    if (q >= 2)
-    {
-        // Obstacles between the point and the light: those the light's disk can see around the ray
-        float halfLamp = uCubeInfo.z * 0.5;
-        float search = clamp(halfLamp * (dist / 0.6 - 1.0), texel * 2.0, 1.2);
-        vec3 t1 = normalize(cross(dir, abs(dir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-        vec3 t2 = cross(dir, t1);
-        float ref = (length(Pb - lamp.xyz) - bias) / lamp.w;
-        int searchTaps = q >= 3 ? 8 : 6;
-        float sumDepth = 0.0, found = 0.0;
-        for (int k = 0; k < searchTaps; ++k)
-        {
-            vec2 o = vogel(k, searchTaps, ang + 1.3) * search;
-            vec3 v = Pb + t1 * o.x + t2 * o.y - lamp.xyz;
-            float d = texture(uCubeDepth, cubeCoord(s, v)).r;
-            if (d < ref)
-                sumDepth += d, found += 1.0;
-        }
-        if (found < 0.5)
-            return 1.0;
-        float db = max(sumDepth / found * lamp.w, 0.05);
-        radius = clamp(halfLamp * (dist - db) / db, texel * 1.2, 1.5);
-        taps = q >= 3 ? 24 : 16;
-    }
+    float radius = clamp(uCubeInfo.z * 0.4 * dist, texel * 1.2, 1.5);
+    int taps = q >= 3 ? 24 : q >= 1 ? 16 : 8; // multiple de 8 (voir plus bas)
     // Les premiers echantillons (repartis sur tout le disque) tous dans l'ombre ou tous dans la lumiere : la plupart des
     // points ne sont pas dans une penombre, inutile de faire le reste
     float sum = 0.0;
