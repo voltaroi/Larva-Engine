@@ -21,6 +21,8 @@ public:
 
     // Buffer 16 bits depuis des échantillons dans [-1, 1] (entrelacés si stéréo)
     unsigned int createBuffer(const std::vector<float> &samples, int sampleRate = SAMPLE_RATE, int channels = 1);
+    // Libère un buffer créé par createBuffer (les sources qui le jouent sont arrêtées)
+    void deleteBuffer(unsigned int buffer);
     // Source 3D qui joue le buffer en boucle, volume nul au départ
     unsigned int createLoopSource(unsigned int buffer, float referenceDistance = 8.0f, float maxDistance = 250.0f,
                                   float rolloff = 1.0f);
@@ -39,6 +41,10 @@ public:
     // Réglages rapides d'une source
     // Change le son joué en boucle par une source (elle repart du début)
     static void setLoopBuffer(unsigned int source, unsigned int buffer);
+    // Joue un buffer une seule fois sur une source (ex. une réplique sur la source d'un personnage)
+    static void playOnce(unsigned int source, unsigned int buffer);
+    static bool isPlaying(unsigned int source);
+    static void stop(unsigned int source);
     static void setGain(unsigned int source, float gain);
     static void setPitch(unsigned int source, float pitch);
     static void setPosition(unsigned int source, float x, float y, float z);

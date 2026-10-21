@@ -9,6 +9,8 @@ namespace SoundFile
 {
     // Échantillons entrelacés dans [-1, 1] ; false si le fichier est absent ou illisible
     bool load(const std::string &path, std::vector<float> &samples, int &sampleRate, int &channels);
+    // Même chose depuis un fichier déjà en mémoire (ex. WAV reçu par le réseau)
+    bool loadFromMemory(const std::string &data, std::vector<float> &samples, int &sampleRate, int &channels);
 }
 
 #endif

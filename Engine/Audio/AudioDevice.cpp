@@ -82,6 +82,30 @@ unsigned int AudioDevice::createBuffer(const std::vector<float> &samples, int sa
     return buffer;
 }
 
+void AudioDevice::deleteBuffer(unsigned int buffer)
+{
+    if (!device || !buffer)
+        return;
+    auto it = std::find(buffers.begin(), buffers.end(), buffer);
+    if (it == buffers.end())
+        return;
+    // Un buffer encore attaché à une source ne peut pas être supprimé
+    for (const std::vector<unsigned int> *list : {&oneShots, &sources})
+        for (ALuint s : *list)
+        {
+            ALint current = 0;
+            alGetSourcei(s, AL_BUFFER, &current);
+            if ((ALuint)current == buffer)
+            {
+                alSourceStop(s);
+                alSourcei(s, AL_BUFFER, 0);
+            }
+        }
+    ALuint b = buffer;
+    alDeleteBuffers(1, &b);
+    buffers.erase(it);
+}
+
 unsigned int AudioDevice::createLoopSource(unsigned int buffer, float referenceDistance, float maxDistance, float rolloff)
 {
     if (!device)
@@ -157,6 +181,31 @@ void AudioDevice::setLoopBuffer(unsigned int source, unsigned int buffer)
     alSourcei(source, AL_BUFFER, buffer);
     alSourcePlay(source);
 }
+void AudioDevice::playOnce(unsigned int source, unsigned int buffer)
+{
+    if (!source)
+        return;
+    alSourceStop(source);
+    alSourcei(source, AL_LOOPING, AL_FALSE);
+    alSourcei(source, AL_BUFFER, buffer);
+    alSourcePlay(source);
+}
+
+bool AudioDevice::isPlaying(unsigned int source)
+{
+    if (!source)
+        return false;
+    ALint state = 0;
+    alGetSourcei(source, AL_SOURCE_STATE, &state);
+    return state == AL_PLAYING;
+}
+
+void AudioDevice::stop(unsigned int source)
+{
+    if (source)
+        alSourceStop(source);
+}
+
 void AudioDevice::setGain(unsigned int source, float gain) { alSourcef(source, AL_GAIN, gain); }
 void AudioDevice::setPitch(unsigned int source, float pitch) { alSourcef(source, AL_PITCH, pitch); }
 void AudioDevice::setPosition(unsigned int source, float x, float y, float z) { alSource3f(source, AL_POSITION, x, y, z); }
