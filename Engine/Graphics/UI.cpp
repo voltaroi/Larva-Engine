@@ -12,6 +12,39 @@ float UI::textG = 1.0f;
 float UI::textB = 1.0f;
 float UI::textA = 1.0f;
 
+std::string (*UI::textFilter)(const std::string &) = nullptr;
+
+// Les textes du code sont en UTF-8, la police est indexee par octet (Latin-1 : accents, n tilde, signes espagnols)
+std::string UI::toLatin1(const std::string &text)
+{
+    bool high = false;
+    for (unsigned char c : text)
+        if (c >= 0x80)
+        {
+            high = true;
+            break;
+        }
+    if (!high)
+        return text;
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size();)
+    {
+        const unsigned char c = (unsigned char)text[i];
+        if ((c == 0xC2 || c == 0xC3) && i + 1 < text.size() && (((unsigned char)text[i + 1]) & 0xC0) == 0x80)
+        {
+            out += (char)(((c & 0x03) << 6) | (((unsigned char)text[i + 1]) & 0x3F));
+            i += 2;
+        }
+        else
+        {
+            out += (char)c;
+            ++i;
+        }
+    }
+    return out;
+}
+
 UI::Style &UI::style()
 {
     static Style current;
@@ -55,7 +88,7 @@ void UI::loadfont(const char *fontPath, int pixelSize)
     FT_Set_Pixel_Sizes(face, 0, pixelSize);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-    for (unsigned char c = 0; c < 128; c++)
+    for (int c = 0; c < 256; c++)
     {
         if (FT_Load_Char(face, c, FT_LOAD_RENDER))
             continue;
@@ -101,6 +134,7 @@ void UI::loadfont(const char *fontPath, int pixelSize)
 
 void UI::renderText(std::string text, float x, float y, float scale)
 {
+    text = toLatin1(textFilter ? textFilter(text) : text);
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -174,6 +208,7 @@ void UI::renderText(std::string text, float x, float y, float scale)
 
 float UI::getTextWidth(std::string text, float scale)
 {
+    text = toLatin1(textFilter ? textFilter(text) : text);
     float width = 0.0f;
     for (unsigned char c : text)
     {
