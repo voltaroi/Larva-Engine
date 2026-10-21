@@ -46,12 +46,20 @@ public:
     std::string userName(Online::UserId id) override;
 
     void createLobby(int maxMembers) override;
+    void createLobby(int maxMembers, bool hostMigration) override;
     void joinLobby(Online::LobbyId lobby) override;
     void leaveLobby() override;
     Online::LobbyId currentLobby() override { return lobby; }
     Online::UserId lobbyOwner() override { return owner; }
     int lobbyMemberCount() override { return (int)members.size(); }
     bool lobbyHasMember(Online::UserId id) override { return members.count(id) != 0; }
+    std::vector<Online::UserId> lobbyMembers() override
+    {
+        std::vector<Online::UserId> out;
+        for (const auto &m : members)
+            out.push_back(m.first);
+        return out;
+    }
     void openInviteOverlay() override { overlayRequested = true; }
     Online::LobbyId lobbyFromCommandLine() override;
 

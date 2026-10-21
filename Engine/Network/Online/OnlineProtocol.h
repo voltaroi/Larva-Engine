@@ -30,9 +30,11 @@
 //   LOGOUT                                      FRIEND_GONE id
 //   FRIEND_ADD pseudo                           LOBBY_ENTERED salon propriétaire max [id pseudo]... (tous les membres)
 //   FRIEND_ACCEPT id / FRIEND_REMOVE id         LOBBY_FAILED message
-//   LOBBY_CREATE max                            MEMBER id pseudo            (nouveau membre)
-//   LOBBY_JOIN salon                            MEMBER_LEFT id
-//   LOBBY_LEAVE                                 LOBBY_CLOSED                (le propriétaire est parti)
+//   LOBBY_CREATE max [releve]                   MEMBER id pseudo            (nouveau membre)
+//     (releve 1 : le salon survit au départ     MEMBER_LEFT id
+//      de son propriétaire)                     LOBBY_CLOSED                (le propriétaire est parti)
+//   LOBBY_JOIN salon                            LOBBY_OWNER id              (salon avec relève : nouveau propriétaire,
+//   LOBBY_LEAVE                                                              avant le MEMBER_LEFT de l'ancien)
 //   INVITE id                                   INVITED id pseudo salon jeu
 //   PING                                        PEER_FAILED id              (données vers un joueur hors du salon)
 //   UDP_LOCAL ip port                           PONG

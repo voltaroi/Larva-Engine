@@ -548,6 +548,13 @@ void LarvaOnline::handle(const std::vector<std::string> &f)
         if (onMemberJoined)
             onMemberJoined(id);
     }
+    else if (op == "LOBBY_OWNER" && f.size() >= 2 && lobby)
+    {
+        // L'ancien propriétaire est parti (son MEMBER_LEFT suit) : le salon continue avec celui-ci
+        owner = toId(f[1]);
+        if (onLobbyOwnerChanged)
+            onLobbyOwnerChanged(owner);
+    }
     else if (op == "MEMBER_LEFT" && f.size() >= 2 && lobby)
     {
         Online::UserId id = toId(f[1]);
@@ -1173,6 +1180,11 @@ void LarvaOnline::dismissInvite(size_t index)
 
 void LarvaOnline::createLobby(int maxMembers)
 {
+    createLobby(maxMembers, false);
+}
+
+void LarvaOnline::createLobby(int maxMembers, bool hostMigration)
+{
     if (!available())
     {
         error = "Connecte-toi a Larva Online pour heberger";
@@ -1181,7 +1193,7 @@ void LarvaOnline::createLobby(int maxMembers)
         return;
     }
     joiningLobby = true;
-    command({"LOBBY_CREATE", std::to_string(maxMembers)});
+    command({"LOBBY_CREATE", std::to_string(maxMembers), hostMigration ? "1" : "0"});
 }
 
 void LarvaOnline::joinLobby(Online::LobbyId id)

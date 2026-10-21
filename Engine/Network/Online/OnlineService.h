@@ -99,12 +99,21 @@ namespace Online
         // --- Salons ---
         // Salon réservé aux amis ; onLobbyEntered est appelé une fois créé (le créateur en est le propriétaire)
         virtual void createLobby(int maxMembers) = 0;
+        // Salon qui survit au départ de son propriétaire : un autre membre en devient le propriétaire
+        // (onLobbyOwnerChanged) au lieu de la fermeture du salon. Steam le fait toujours.
+        virtual void createLobby(int maxMembers, bool hostMigration)
+        {
+            (void)hostMigration;
+            createLobby(maxMembers);
+        }
         virtual void joinLobby(LobbyId lobby) = 0;
         virtual void leaveLobby() = 0;
         virtual LobbyId currentLobby() = 0;
         virtual UserId lobbyOwner() = 0;
         virtual int lobbyMemberCount() = 0;
         virtual bool lobbyHasMember(UserId id) = 0;
+        // Membres du salon, soi compris (vide si le service ne sait pas les lister)
+        virtual std::vector<UserId> lobbyMembers() { return {}; }
         // Steam : overlay d'invitation ; Larva Online : ouvre le panneau d'amis (OnlineOverlay)
         virtual void openInviteOverlay() = 0;
         // Salon passé en ligne de commande quand le jeu est lancé par une invitation (Steam ou launcher)
@@ -127,6 +136,8 @@ namespace Online
         std::function<void(LobbyId lobby)> onJoinRequested; // invitation acceptée / "Rejoindre la partie"
         std::function<void(UserId member)> onMemberJoined;
         std::function<void(UserId member)> onMemberLeft;
+        // Le propriétaire du salon est parti et un autre membre l'est devenu (appelé avant onMemberLeft de l'ancien)
+        std::function<void(UserId owner)> onLobbyOwnerChanged;
         std::function<void(UserId from, const std::string &data)> onMessage;
         std::function<void(UserId peer)> onSessionFailed; // joueur injoignable
         // Invitation reçue (Larva Online ; le panneau d'amis l'affiche aussi)

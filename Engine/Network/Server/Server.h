@@ -17,6 +17,10 @@ public:
     void sendEvent(const std::string &eventName, const JsonValue &data) override;
     void stop();
     bool isRunning() const { return running; }
+    // Coupe la connexion d'un client (le rappel de déconnexion suit, comme s'il était parti)
+    bool kick(int clientId);
+    // Adresse IPv4 du client vue par le serveur ("127.0.0.1" pour ce PC ; vide si inconnu)
+    std::string address(int clientId);
 
     using ConnectCallback = std::function<void(int clientId)>;
     using InputCallback = std::function<void(int clientId, int seq, float dx, float dz)>;

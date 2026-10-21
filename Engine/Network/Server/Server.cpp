@@ -122,6 +122,35 @@ bool Server::sendTo(int clientId, const std::string &msg) {
     return true;
 }
 
+bool Server::kick(int clientId) {
+    std::lock_guard<std::mutex> lock(clientsMutex);
+    for (const auto &c : clients)
+        if (c.id == clientId && c.sock != INVALID_SOCKET) {
+#ifdef _WIN32
+            shutdown(c.sock, SD_BOTH); // recv rend 0 : clientHandler fait le ménage et prévient onDisconnect
+#else
+            shutdown(c.sock, SHUT_RDWR);
+#endif
+            return true;
+        }
+    return false;
+}
+
+std::string Server::address(int clientId) {
+    std::lock_guard<std::mutex> lock(clientsMutex);
+    for (const auto &c : clients)
+        if (c.id == clientId) {
+            sockaddr_in peer{};
+            socklen_t len = sizeof(peer);
+            if (getpeername(c.sock, (sockaddr *)&peer, &len) != 0 || peer.sin_family != AF_INET)
+                return "";
+            char buf[INET_ADDRSTRLEN] = {0};
+            inet_ntop(AF_INET, &peer.sin_addr, buf, sizeof(buf));
+            return buf;
+        }
+    return "";
+}
+
 void Server::broadcastEvent(const std::string &eventName, const JsonValue &data) {
     std::string json = data.toString();
     std::string line = "EVENT " + eventName + " " + json + "\n";
