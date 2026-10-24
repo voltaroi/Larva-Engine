@@ -1,4 +1,6 @@
 #version 330 core
+// Same position as the depth prepass of Model (Model::BeginDepthPrepass)
+invariant gl_Position;
 
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;

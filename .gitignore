@@ -4,3 +4,4 @@
 *.tar.xz
 Dependencies/**/*
 Release/*
+/backups/

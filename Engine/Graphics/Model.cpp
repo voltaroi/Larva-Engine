@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <fstream>
 #include "ResourcePak.h"
+#include "GpuTimer.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -63,6 +64,7 @@ static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
 static bool g_shadowPass = false;
+static int g_sunShadowDraws = 0; // objets dessinés dans la carte d'ombre du soleil depuis BeginShadowPass
 static GLint g_prevViewport[4] = {0, 0, 0, 0};
 
 // Cached program uniform locations to avoid repeated glGetUniformLocation calls
@@ -583,6 +585,305 @@ static GLuint createModelProgram()
     return g_modelProgram;
 }
 
+// ---------------------------------------------------------------------------
+//  Depth prepass (BeginDepthPrepass / EndDepthPrepass)
+// ---------------------------------------------------------------------------
+// Same position as model_vertex.glsl (both declare gl_Position invariant): the full shader passes GL_LEQUAL exactly
+static const char *PREPASS_VS = R"GLSL(
+#version 330 core
+layout(location = 0) in vec3 aPos;
+layout(location = 4) in vec4 iModel0;
+layout(location = 5) in vec4 iModel1;
+layout(location = 6) in vec4 iModel2;
+layout(location = 7) in vec4 iModel3;
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+uniform bool uInstanced;
+invariant gl_Position;
+void main()
+{
+    mat4 m = model;
+    if (uInstanced)
+        m = mat4(iModel0, iModel1, iModel2, iModel3);
+    vec4 worldPos = m * vec4(aPos, 1.0);
+    gl_Position = projection * view * worldPos;
+}
+)GLSL";
+
+static const char *PREPASS_FS = R"GLSL(
+#version 330 core
+void main()
+{
+}
+)GLSL";
+
+// A recorded draw: what draw() / drawInstanced() would have used, and the OpenGL state at that moment
+struct DeferredDraw
+{
+    Model *model = nullptr;
+    bool instanced = false;
+    size_t first = 0;
+    int count = 0;
+    glm::mat4 matrix = glm::mat4(1.0f);
+    float specular = 0.0f, shininess = 0.0f, emissive = 0.0f;
+    bool pbr = false;
+    float roughness = 0.0f, metallic = 0.0f;
+    unsigned int detailTexture = 0;
+    float detailScale = 1.0f, detailStrength = 1.0f;
+    bool useColorOverride = false;
+    float colorOverride[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    bool blend = false, depthMask = true, depthTest = true, cull = false;
+    GLint blendFunc[4] = {GL_ONE, GL_ZERO, GL_ONE, GL_ZERO};
+};
+static bool g_prepassEnabled = true;
+static bool g_recording = false;
+static bool g_depthOnly = false;
+static std::vector<DeferredDraw> g_deferred;
+static std::vector<Model::Instance> g_deferredInstances;
+static GLuint g_prepassProgram = 0;
+static GLint g_prepassLocModel = -1, g_prepassLocView = -1, g_prepassLocProj = -1, g_prepassLocInstanced = -1;
+
+static GLuint createPrepassProgram()
+{
+    if (g_prepassProgram)
+        return g_prepassProgram;
+    GLuint vs = compileShader(GL_VERTEX_SHADER, PREPASS_VS);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, PREPASS_FS);
+    if (!vs || !fs)
+    {
+        if (vs)
+            glDeleteShader(vs);
+        if (fs)
+            glDeleteShader(fs);
+        return 0;
+    }
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok)
+    {
+        char buf[1024];
+        glGetProgramInfoLog(prog, sizeof(buf), nullptr, buf);
+        std::cerr << "Depth prepass shader link error: " << buf << std::endl;
+        glDeleteProgram(prog);
+        return 0;
+    }
+    g_prepassProgram = prog;
+    g_prepassLocModel = glGetUniformLocation(prog, "model");
+    g_prepassLocView = glGetUniformLocation(prog, "view");
+    g_prepassLocProj = glGetUniformLocation(prog, "projection");
+    g_prepassLocInstanced = glGetUniformLocation(prog, "uInstanced");
+    return prog;
+}
+
+static void captureState(DeferredDraw &d)
+{
+    d.blend = glIsEnabled(GL_BLEND) == GL_TRUE;
+    d.depthTest = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+    d.cull = glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+    GLboolean mask = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &mask);
+    d.depthMask = mask == GL_TRUE;
+    if (d.blend)
+    {
+        glGetIntegerv(GL_BLEND_SRC_RGB, &d.blendFunc[0]);
+        glGetIntegerv(GL_BLEND_DST_RGB, &d.blendFunc[1]);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &d.blendFunc[2]);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &d.blendFunc[3]);
+    }
+}
+
+static void applyState(const DeferredDraw &d)
+{
+    if (d.blend)
+    {
+        glEnable(GL_BLEND);
+        glBlendFuncSeparate(d.blendFunc[0], d.blendFunc[1], d.blendFunc[2], d.blendFunc[3]);
+    }
+    else
+        glDisable(GL_BLEND);
+    if (d.depthTest)
+        glEnable(GL_DEPTH_TEST);
+    else
+        glDisable(GL_DEPTH_TEST);
+    if (d.cull)
+        glEnable(GL_CULL_FACE);
+    else
+        glDisable(GL_CULL_FACE);
+    glDepthMask(d.depthMask ? GL_TRUE : GL_FALSE);
+}
+
+static bool isOpaque(const DeferredDraw &d)
+{
+    return !d.blend && d.depthTest && d.depthMask && (d.instanced || !d.useColorOverride || d.colorOverride[3] >= 0.999f);
+}
+
+static void recordDraw(Model &m, const glm::mat4 &matrix)
+{
+    DeferredDraw d;
+    d.model = &m;
+    d.matrix = matrix;
+    d.specular = m.specular, d.shininess = m.shininess, d.emissive = m.emissive;
+    d.pbr = m.pbr, d.roughness = m.roughness, d.metallic = m.metallic;
+    d.detailTexture = m.detailTexture, d.detailScale = m.detailScale, d.detailStrength = m.detailStrength;
+    d.useColorOverride = m.useColorOverride;
+    d.colorOverride[0] = m.overrideR, d.colorOverride[1] = m.overrideG, d.colorOverride[2] = m.overrideB, d.colorOverride[3] = m.overrideA;
+    captureState(d);
+    g_deferred.push_back(d);
+}
+
+static void recordInstanced(Model &m, const Model::Instance *instances, int count)
+{
+    DeferredDraw d;
+    d.model = &m;
+    d.instanced = true;
+    d.first = g_deferredInstances.size();
+    d.count = count;
+    g_deferredInstances.insert(g_deferredInstances.end(), instances, instances + count);
+    captureState(d);
+    g_deferred.push_back(d);
+}
+
+// Depth of a draw() in the prepass (the prepass program is bound)
+static void drawDepthOnly(Model &m, const glm::mat4 &matrix)
+{
+    if (g_prepassLocModel >= 0)
+        glUniformMatrix4fv(g_prepassLocModel, 1, GL_FALSE, glm::value_ptr(matrix));
+    if (g_prepassLocInstanced >= 0)
+        glUniform1i(g_prepassLocInstanced, 0);
+    for (auto &mesh : m.meshes)
+    {
+        if (!mesh.buffersInitialized)
+            continue;
+        glBindVertexArray(mesh.VAO);
+        glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, 0);
+    }
+    glBindVertexArray(0);
+}
+
+// The recorded draw with the full shader and the material it had when it was recorded
+static void drawShaded(const DeferredDraw &d)
+{
+    Model &m = *d.model;
+    if (d.instanced)
+    {
+        m.drawInstanced(&g_deferredInstances[d.first], d.count);
+        return;
+    }
+    const float specular = m.specular, shininess = m.shininess, emissive = m.emissive, roughness = m.roughness, metallic = m.metallic;
+    const bool pbr = m.pbr, useColorOverride = m.useColorOverride;
+    const unsigned int detailTexture = m.detailTexture;
+    const float detailScale = m.detailScale, detailStrength = m.detailStrength;
+    const float overrideR = m.overrideR, overrideG = m.overrideG, overrideB = m.overrideB, overrideA = m.overrideA;
+    m.specular = d.specular, m.shininess = d.shininess, m.emissive = d.emissive, m.roughness = d.roughness, m.metallic = d.metallic;
+    m.pbr = d.pbr, m.useColorOverride = d.useColorOverride;
+    m.detailTexture = d.detailTexture, m.detailScale = d.detailScale, m.detailStrength = d.detailStrength;
+    m.overrideR = d.colorOverride[0], m.overrideG = d.colorOverride[1], m.overrideB = d.colorOverride[2], m.overrideA = d.colorOverride[3];
+    m.drawWithMatrix(glm::value_ptr(d.matrix));
+    m.specular = specular, m.shininess = shininess, m.emissive = emissive, m.roughness = roughness, m.metallic = metallic;
+    m.pbr = pbr, m.useColorOverride = useColorOverride;
+    m.detailTexture = detailTexture, m.detailScale = detailScale, m.detailStrength = detailStrength;
+    m.overrideR = overrideR, m.overrideG = overrideG, m.overrideB = overrideB, m.overrideA = overrideA;
+}
+
+void Model::SetDepthPrepassEnabled(bool enabled)
+{
+    g_prepassEnabled = enabled;
+}
+
+void Model::BeginDepthPrepass()
+{
+    if (!g_prepassEnabled || g_recording || g_shadowPass)
+        return;
+    g_deferred.clear();
+    g_deferredInstances.clear();
+    g_recording = true;
+}
+
+void Model::EndDepthPrepass()
+{
+    if (!g_recording)
+        return;
+    g_recording = false;
+    DeferredDraw caller;
+    captureState(caller);
+    GLint depthFunc = GL_LESS;
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    GLboolean colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+    glGetBooleanv(GL_COLOR_WRITEMASK, colorMask);
+
+    bool anyOpaque = false;
+    for (const DeferredDraw &d : g_deferred)
+        anyOpaque = anyOpaque || isOpaque(d);
+    const bool prepass = anyOpaque && createPrepassProgram() != 0;
+    if (prepass)
+    {
+        // 1. Depth of the opaque draws only
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glUseProgram(g_prepassProgram);
+        if (g_prepassLocView >= 0)
+            glUniformMatrix4fv(g_prepassLocView, 1, GL_FALSE, glm::value_ptr(g_cachedView));
+        if (g_prepassLocProj >= 0)
+            glUniformMatrix4fv(g_prepassLocProj, 1, GL_FALSE, glm::value_ptr(g_cachedProjection));
+        glDepthFunc(GL_LESS);
+        g_depthOnly = true;
+        for (const DeferredDraw &d : g_deferred)
+        {
+            if (!isOpaque(d))
+                continue;
+            applyState(d);
+            if (d.instanced)
+                d.model->drawInstanced(&g_deferredInstances[d.first], d.count);
+            else
+                drawDepthOnly(*d.model, d.matrix);
+        }
+        g_depthOnly = false;
+        glUseProgram(0);
+        glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
+        glDepthFunc(GL_LEQUAL);
+    }
+    // Two opaque surfaces at exactly the same depth (a bar across a rail): with GL_LESS the first one drawn stays.
+    // GL_LEQUAL would let the last one through, so the stencil keeps the first fragment of each pixel.
+    GLint stencilBits = 0;
+    glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
+    const bool stencil = prepass && stencilBits > 0;
+    const bool stencilWasOn = glIsEnabled(GL_STENCIL_TEST) == GL_TRUE;
+    if (stencil)
+    {
+        glClearStencil(0);
+        glClear(GL_STENCIL_BUFFER_BIT);
+        glStencilFunc(GL_EQUAL, 0, 0xFF);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+        glStencilMask(0xFF);
+    }
+    // 2. Everything, in order, with the full shader: hidden surfaces fail the depth test before being lit
+    for (const DeferredDraw &d : g_deferred)
+    {
+        applyState(d);
+        if (stencil)
+        {
+            if (isOpaque(d))
+                glEnable(GL_STENCIL_TEST);
+            else
+                glDisable(GL_STENCIL_TEST);
+        }
+        drawShaded(d);
+    }
+    if (stencil && !stencilWasOn)
+        glDisable(GL_STENCIL_TEST);
+    if (prepass)
+        glDepthFunc(depthFunc);
+    applyState(caller);
+    g_deferred.clear();
+    g_deferredInstances.clear();
+}
+
 Model::Model()
     : posX(0.0f), posY(0.0f), posZ(0.0f), scaleX(1.0f), scaleY(1.0f), scaleZ(1.0f),
       rotX(0.0f), rotY(0.0f), rotZ(0.0f)
@@ -1082,6 +1383,22 @@ void Model::draw()
     model = glm::rotate(model, glm::radians(rotY), glm::vec3(0.0f, 1.0f, 0.0f));
     model = glm::rotate(model, glm::radians(rotZ), glm::vec3(0.0f, 0.0f, 1.0f));
     model = glm::scale(model, glm::vec3(scaleX, scaleY, scaleZ));
+    drawWithMatrix(glm::value_ptr(model));
+}
+
+void Model::drawWithMatrix(const float matrix[16])
+{
+    const glm::mat4 model = glm::make_mat4(matrix);
+    if (g_recording && !g_shadowPass)
+    {
+        recordDraw(*this, model);
+        return;
+    }
+    if (g_depthOnly)
+    {
+        drawDepthOnly(*this, model);
+        return;
+    }
     // Batch meshes by texture to reduce texture binds
     std::unordered_map<GLuint, std::vector<Mesh *>> batches;
     for (auto &m : meshes)
@@ -1093,6 +1410,8 @@ void Model::draw()
     // Shadow pass: set model matrix and draw using same batching logic
     if (g_shadowPass)
     {
+        if (!g_cubePass)
+            ++g_sunShadowDraws;
         // Sun shadow map, or a face of a point light shadow map (BeginPointShadowFace)
         GLint locModel = g_cubeLocModel, locAlpha = g_cubeLocAlpha;
         if (!g_cubePass)
@@ -1278,11 +1597,21 @@ void Model::drawInstanced(const Instance *instances, int count)
 {
     if (count <= 0 || !instances)
         return;
+    if (g_recording && !g_shadowPass)
+    {
+        recordInstanced(*this, instances, count);
+        return;
+    }
     static GLuint instanceVBO = 0;
     if (!instanceVBO)
         glGenBuffers(1, &instanceVBO);
     GLint locInstanced = -1;
-    if (g_shadowPass && g_cubePass)
+    if (g_depthOnly)
+    {
+        glUseProgram(g_prepassProgram);
+        locInstanced = g_prepassLocInstanced;
+    }
+    else if (g_shadowPass && g_cubePass)
     {
         locInstanced = g_cubeLocInstanced;
         if (g_cubeLocAlpha >= 0)
@@ -1290,6 +1619,7 @@ void Model::drawInstanced(const Instance *instances, int count)
     }
     else if (g_shadowPass)
     {
+        ++g_sunShadowDraws;
         GLuint shadowProg = createShadowProgram();
         if (shadowProg == 0)
             return;
@@ -1343,7 +1673,7 @@ void Model::drawInstanced(const Instance *instances, int count)
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glUniform1i(locInstanced, 0);
-    if (!g_shadowPass)
+    if (!g_shadowPass && !g_depthOnly)
         glUseProgram(0);
 }
 
@@ -1855,6 +2185,7 @@ void Model::BeginShadowPass()
     }
 
     g_shadowPass = true;
+    g_sunShadowDraws = 0;
 }
 
 void Model::EndShadowPass()
@@ -1863,7 +2194,10 @@ void Model::EndShadowPass()
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glUseProgram(0);
 
-    blurShadowMap();
+    GpuTimer::mark("flou_soleil");
+    // Rien n'a été dessiné (soleil éteint, scène vide) : la carte effacée est uniforme, le flou ne changerait rien
+    if (g_sunShadowDraws > 0)
+        blurShadowMap();
 
     // Restore previous viewport saved in BeginShadowPass
     glViewport(g_prevViewport[0], g_prevViewport[1], g_prevViewport[2], g_prevViewport[3]);

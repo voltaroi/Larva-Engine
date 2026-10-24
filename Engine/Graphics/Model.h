@@ -38,6 +38,8 @@ public:
     bool createFromData(const std::vector<SimpleVertex> &verts, const std::vector<unsigned int> &indices);
 
     void draw();
+    // draw() with an already computed model matrix (column-major)
+    void drawWithMatrix(const float matrix[16]);
 
     // Many copies of the model in one draw call: each instance has its own matrix (column-major), colour and material.
     // Texture, detail map and PBR are not used. Works in the shadow pass as well.
@@ -123,6 +125,16 @@ public:
     // Procedural dirt on everything drawn with the environment (colour variation, grime, ash, rust streaks, grain bump):
     // 0 = off (default), 1 = light, 2 = strong
     static void SetGrime(float strength);
+    // Depth prepass (opt-in, environment lighting): between BeginDepthPrepass and EndDepthPrepass, draw() and
+    // drawInstanced() are recorded instead of drawn. EndDepthPrepass first writes the depth of the opaque ones with a
+    // trivial shader, then draws everything in order with the full shader (depth test GL_LEQUAL): each visible pixel
+    // is lit once instead of once per overlapping surface. Opaque: no blending, depth test and depth writes on (state
+    // read at each draw) and alpha 1. The model vertex shader must declare "invariant gl_Position".
+    // Call SetFrameUniforms before; other OpenGL drawing in between is not deferred (it would end up underneath).
+    static void BeginDepthPrepass();
+    static void EndDepthPrepass();
+    // false: Begin/EndDepthPrepass do nothing (draws are immediate, as without them)
+    static void SetDepthPrepassEnabled(bool enabled);
 
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);
