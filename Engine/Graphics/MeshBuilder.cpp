@@ -1,14 +1,34 @@
 #include "MeshBuilder.h"
 #include <cmath>
+#include <algorithm>
 
 void MeshBuilder::clear()
 {
     verts.clear();
     indices.clear();
+    pieceCount = 0;
+}
+
+void MeshBuilder::finishPiece(size_t first)
+{
+    if (--pieceDepth > 0 || first >= verts.size())
+        return;
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (size_t i = first; i < verts.size(); ++i)
+    {
+        const float p[3] = {verts[i].x, verts[i].y, verts[i].z};
+        for (int k = 0; k < 3; ++k)
+            lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
+    }
+    const float dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
+    const float priority = Model::DepthPriority(0.5f * std::sqrt(dx * dx + dy * dy + dz * dz), pieceCount++) + 1.0f;
+    for (size_t i = first; i < verts.size(); ++i)
+        verts[i].priority = priority;
 }
 
 void MeshBuilder::quad(const float a[3], const float b[3], const float c[3], const float d[3], float nx, float ny, float nz)
 {
+    Piece piece(*this);
     unsigned int base = (unsigned int)verts.size();
     const float *p[4] = {a, b, c, d};
     for (int i = 0; i < 4; ++i)
@@ -19,6 +39,7 @@ void MeshBuilder::quad(const float a[3], const float b[3], const float c[3], con
 void MeshBuilder::addTransformed(const Model::Mesh &src, float px, float py, float pz,
                                  float sx, float sy, float sz, float rotXDeg, float rotYDeg)
 {
+    Piece piece(*this);
     const float DEG = 3.14159265f / 180.0f;
     unsigned int base = (unsigned int)verts.size();
     float ax = rotXDeg * DEG, ay = rotYDeg * DEG;
@@ -55,6 +76,7 @@ void MeshBuilder::addTransformed(const Model::Mesh &src, float px, float py, flo
 
 void MeshBuilder::segmentBox(float ax, float az, float bx, float bz, float halfThick, float height)
 {
+    Piece piece(*this);
     float dx = bx - ax, dz = bz - az;
     float len = std::sqrt(dx * dx + dz * dz);
     if (len < 1e-4f)
@@ -75,6 +97,7 @@ void MeshBuilder::segmentBox(float ax, float az, float bx, float bz, float halfT
 
 void MeshBuilder::cone(float cx, float baseY, float cz, float radius, float height, int segments)
 {
+    Piece piece(*this);
     const float TWO_PI = 6.28318531f;
     segments = segments < 3 ? 3 : segments;
     // Normale des flancs : inclinée vers le haut selon la pente du cône
@@ -95,6 +118,7 @@ void MeshBuilder::cone(float cx, float baseY, float cz, float radius, float heig
 
 void MeshBuilder::box(float cx, float cy, float cz, float hx, float hy, float hz)
 {
+    Piece piece(*this);
     // Six faces : pour chaque axe, une face de chaque côté
     for (int axis = 0; axis < 3; ++axis)
         for (int side = -1; side <= 1; side += 2)
@@ -122,6 +146,7 @@ void MeshBuilder::box(float cx, float cy, float cz, float hx, float hy, float hz
 
 void MeshBuilder::sphere(float cx, float cy, float cz, float rx, float ry, float rz, int rings, int segments)
 {
+    Piece piece(*this);
     const float PI = 3.14159265f;
     rings = rings < 2 ? 2 : rings;
     segments = segments < 3 ? 3 : segments;
@@ -151,6 +176,7 @@ void MeshBuilder::sphere(float cx, float cy, float cz, float rx, float ry, float
 
 void MeshBuilder::torus(float majorRadius, float minorRadius, int segments, int sides)
 {
+    Piece piece(*this);
     const float TWO_PI = 6.28318531f;
     segments = segments < 3 ? 3 : segments;
     sides = sides < 3 ? 3 : sides;
@@ -176,6 +202,7 @@ void MeshBuilder::torus(float majorRadius, float minorRadius, int segments, int 
 
 void MeshBuilder::tube(const float a[3], const float b[3], float radius, int sides, bool caps)
 {
+    Piece piece(*this);
     const float TWO_PI = 6.28318531f;
     sides = sides < 3 ? 3 : sides;
     float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
@@ -241,6 +268,7 @@ void MeshBuilder::tube(const float a[3], const float b[3], float radius, int sid
 
 void MeshBuilder::roundedBox(float cx, float cy, float cz, float hx, float hy, float hz, float radius, int segments)
 {
+    Piece piece(*this);
     const float HALF_PI = 1.5707963f;
     segments = segments < 1 ? 1 : segments;
     radius = std::fmin(radius, std::fmin(hx, std::fmin(hy, hz)));
@@ -308,6 +336,7 @@ void MeshBuilder::roundedBox(float cx, float cy, float cz, float hx, float hy, f
 
 void MeshBuilder::lathe(const std::vector<float> &profile, int segments, float cx, float cy, float cz, float creaseDeg)
 {
+    Piece piece(*this);
     const float TWO_PI = 6.28318531f;
     size_t n = profile.size() / 2;
     if (n < 2)
@@ -366,7 +395,17 @@ void MeshBuilder::lathe(const std::vector<float> &profile, int segments, float c
 
 void MeshBuilder::uploadTo(Model &m, float r, float g, float b) const
 {
-    m.createFromData(verts, indices);
+    if (pieceCount == 1)
+    {
+        // Une seule pièce : la priorité du modèle, qui tient compte de son échelle quand il est dessiné (des sommets
+        // ajoutés à la main gardent la leur)
+        std::vector<SimpleVertex> plain = verts;
+        for (SimpleVertex &v : plain)
+            v.priority = 0.0f;
+        m.createFromData(plain, indices);
+    }
+    else
+        m.createFromData(verts, indices);
     m.setPosition(0.0f, 0.0f, 0.0f);
     m.setScale(1.0f, 1.0f, 1.0f);
     m.setRotation(0.0f, 0.0f, 0.0f);

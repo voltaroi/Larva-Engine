@@ -5,6 +5,8 @@ invariant gl_Position;
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec2 aTexCoord;
+// Depth priority of the MeshBuilder piece + 1 (0: the draw's, uDepthPriority); instances: iMaterial.w
+layout(location = 3) in float aPriority;
 // Instanced draws (Model::drawInstanced): model matrix, colour and material per instance
 layout(location = 4) in vec4 iModel0;
 layout(location = 5) in vec4 iModel1;
@@ -19,6 +21,10 @@ uniform mat4 projection;
 uniform mat4 lightSpaceMatrix;
 uniform mat3 normalMatrix;
 uniform vec3 uObjectScale; // Model scale: detail textures keep their size on scaled objects
+// Depth priority (Model::DepthPriority): of two surfaces at the same place, the higher one stays in front. Same
+// computation as the depth prepass of Model (PREPASS_VS)
+uniform float uDepthPriority;
+const float DEPTH_STEP = 2.0 / 16777215.0; // one step of a 24 bit depth buffer
 
 out vec3 FragPos;
 out vec3 Normal;
@@ -54,4 +60,6 @@ void main()
     LocalNormal = aNormal / sc;
     FragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
     gl_Position = projection * view * worldPos;
+    float priority = uInstanced ? iMaterial.w : (aPriority > 0.0 ? aPriority - 1.0 : uDepthPriority);
+    gl_Position.z -= priority * DEPTH_STEP * gl_Position.w;
 }

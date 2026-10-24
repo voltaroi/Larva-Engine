@@ -103,7 +103,7 @@ float esmShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
 
     // VSM: sample moments (depth, depth^2) and use Chebyshev inequality
     float shadow = 0.0;
-    int samples = int(mix(4.0, 24.0, clamp(receiverDepth, 0.0, 1.0)));
+    int samples = int(mix(4.0, 16.0, clamp(receiverDepth, 0.0, 1.0))); // au plus les 16 points du disque
     for (int i = 0; i < samples; ++i) {
         vec2 offset = rot * (poissonDisk[i] * filterRadius * lightSizeUV * 3.0);
         vec2 moments = texture(shadowMap, projCoords.xy + offset).rg;
@@ -315,6 +315,14 @@ uniform int uPointSlot[MAX_POINT_LIGHTS]; // slot of each point light, -1: none 
 uniform vec4 uSlotLamp[MAX_SHADOW_LAMPS]; // position and far distance of the light of each slot
 uniform float uExposure;
 uniform float uShadowRange; // au-dela (m de la camera), la grille au lieu des cartes d'ombre
+// Occlusion ambiante a l'ecran (Model::SetAmbientOcclusion), calculee apres la prepasse de profondeur a demi-resolution :
+// R = lumiere ambiante qui atteint le point (0..1), G = profondeur lineaire (pour l'agrandir sans baver sur les bords)
+uniform bool uAoOn;
+uniform sampler2D uAoTex;
+uniform vec4 uAoInfo; // origine du viewport x, y ; force ; part appliquee a la lumiere directe
+uniform mat4 view;
+// Lumiere indirecte des lampes (Model::SetBounceLight) : 0 = aucune
+uniform float uBounce;
 
 const vec3 CUBE_F[6] = vec3[6](vec3(1, 0, 0), vec3(-1, 0, 0), vec3(0, 1, 0), vec3(0, -1, 0), vec3(0, 0, 1), vec3(0, 0, -1));
 const vec3 CUBE_U[6] = vec3[6](vec3(0, 1, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(0, 0, 1), vec3(0, 1, 0), vec3(0, 1, 0));
@@ -395,6 +403,28 @@ float cubeShadow(int s, vec3 P, vec3 N)
     else if (camDist > uShadowRange * 0.25)
         q = min(q, 1);
     float radius = clamp(uCubeInfo.z * 0.4 * dist, texel * 1.2, 1.5);
+    if (q >= 2)
+    {
+        // Penombre de contact : la distance moyenne de ce qui cache la lampe autour de P donne la largeur de la penombre
+        // (nette au pied d'un obstacle, large loin de lui), jamais plus large que sans recherche. Aucun obstacle : eclaire.
+        float found = 0.0, blockSum = 0.0;
+        for (int k = 0; k < 8; ++k)
+        {
+            vec2 o = vogel(k, 8, ang + 1.7) * radius;
+            vec3 v = Pb + b1 * o.x + b2 * o.y - lamp.xyz;
+            float dq = length(v);
+            float occ = texture(uCubeDepth, cubeCoord(s, v)).r * lamp.w;
+            if (occ < dq - bias - length(o) * 0.05)
+            {
+                found += 1.0;
+                blockSum += occ;
+            }
+        }
+        if (found == 0.0)
+            return 1.0;
+        float dB = blockSum / found;
+        radius = clamp(uCubeInfo.z * 0.5 * (dist - dB) / max(dB, 0.05), texel * 1.2, radius);
+    }
     int taps = q >= 3 ? 24 : q >= 1 ? 16 : 8; // multiple de 8 (voir plus bas)
     // Les premiers echantillons (repartis sur tout le disque) tous dans l'ombre ou tous dans la lumiere : la plupart des
     // points ne sont pas dans une penombre, inutile de faire le reste
@@ -427,6 +457,70 @@ float lightShadow(int i, vec3 P, vec3 N)
             return cubeShadow(s, P, N);
     }
     return pointShadow(P, N, uPointPos[i].xyz);
+}
+
+// Part de la lumiere renvoyee par la piece de la lampe i qui atteint P (lumiere indirecte) : l'ombre de la lampe vue depuis
+// quatre points sortis de la surface, du cote de la piece, etales pour que la transition soit tres douce (un mur entre la
+// lampe et P la bloque, un pied de chaise non).
+// direct : visibilite directe deja calculee (-1 : pas calculee)
+float bounceVisibility(int i, vec3 P, vec3 N, float direct)
+{
+    vec3 L = uPointPos[i].xyz;
+    if (uCubeOn)
+    {
+        int s = uPointSlot[i];
+        if (s >= 0 && length(viewPos - P) < uShadowRange)
+        {
+            vec4 lamp = uSlotLamp[s];
+            vec3 b1 = normalize(cross(N, abs(N.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0))) * 0.35;
+            vec3 b2 = cross(N, b1);
+            vec3 Q = P + N * 0.4;
+            return 0.25 * (cubeTest(s, lamp, Q + b1, 0.05) + cubeTest(s, lamp, Q - b1, 0.05) +
+                           cubeTest(s, lamp, Q + b2, 0.05) + cubeTest(s, lamp, Q - b2, 0.05));
+        }
+    }
+    if (!uGridOn)
+        return 1.0;
+    return direct >= 0.0 ? direct : pointShadow(P + N * 0.4, N, L);
+}
+
+// Lumiere indirecte de la lampe i : sans direction marquee, elle decroit moins vite que la lumiere directe (elle vient des
+// murs et du sol eclaires autour de la lampe)
+float bounceAttenuation(float d2, float r)
+{
+    float window = clamp(1.0 - d2 / (r * r), 0.0, 1.0);
+    return window * window * 0.2 / (1.0 + 0.25 * d2);
+}
+
+// Occlusion ambiante de ce pixel (1 : rien autour), agrandie de la demi-resolution en ne melangeant que les echantillons
+// a la meme profondeur (pas de halo autour des personnages)
+float screenAO()
+{
+    if (!uAoOn)
+        return 1.0;
+    float z = -(view * vec4(FragPos, 1.0)).z;
+    vec2 p = (gl_FragCoord.xy - uAoInfo.xy) * 0.5 - 0.5;
+    ivec2 b = ivec2(floor(p));
+    vec2 f = p - vec2(b);
+    ivec2 size = textureSize(uAoTex, 0);
+    float sum = 0.0, wsum = 0.0, best = 1.0, bestDiff = 1e9;
+    for (int k = 0; k < 4; ++k)
+    {
+        ivec2 o = ivec2(k & 1, k >> 1);
+        vec2 s = texelFetch(uAoTex, clamp(b + o, ivec2(0), size - 1), 0).rg;
+        float diff = abs(s.g - z);
+        if (diff < bestDiff)
+        {
+            bestDiff = diff;
+            best = s.r;
+        }
+        float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+        w *= max(0.0, 1.0 - diff / (0.04 * z + 0.02));
+        sum += s.r * w;
+        wsum += w;
+    }
+    float ao = wsum > 1e-3 ? sum / wsum : best;
+    return mix(1.0, ao, uAoInfo.z);
 }
 
 float envHash(vec2 p)
@@ -599,11 +693,14 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
     float a = rough * rough;
     float NoV = max(dot(N, V), 1e-4);
 
+    float ao = screenAO();
+    float aoDirect = mix(1.0, ao, uAoInfo.w);
     float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
-    vec3 color = uSunColor * pbrLight(N, V, L, albedo, F0, rough, metal, a) * visibility;
+    vec3 color = uSunColor * pbrLight(N, V, L, albedo, F0, rough, metal, a) * visibility * aoDirect;
 
     // Point lights: small spheres (radius 0.25) so that glossy surfaces show a visible reflection
     vec3 nearLight = vec3(0.0);
+    vec3 bounce = vec3(0.0);
     for (int i = 0; i < uPointCount; ++i)
     {
         vec3 toLight = uPointPos[i].xyz - FragPos;
@@ -613,26 +710,36 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
             continue;
         float d = sqrt(d2);
         vec3 Lp = toLight / max(d, 0.0001);
+        float nl = dot(N, Lp);
+        float vis = -1.0;
         float att = pointAttenuation(i, Lp, d2, r);
-        if (att < 0.0005)
-            continue;
-        if (dot(N, Lp) <= 0.0)
+        if (att >= 0.0005)
         {
-            nearLight += uPointColor[i] * att; // de dos : pas de lumiere directe, donc pas d'ombre a chercher
-            continue;
+            if (nl <= 0.0)
+                nearLight += uPointColor[i] * att; // de dos : pas de lumiere directe, donc pas d'ombre a chercher
+            else
+            {
+                vis = lightShadow(i, FragPos, N);
+                float aL = clamp(a + 0.25 / (2.0 * max(d, 0.05)), 0.0, 1.0);
+                color += uPointColor[i] * att * vis * aoDirect * pbrLight(N, V, Lp, albedo, F0, rough, metal, aL);
+                nearLight += uPointColor[i] * att * vis;
+            }
         }
-        att *= lightShadow(i, FragPos, N);
-        float aL = clamp(a + 0.25 / (2.0 * max(d, 0.05)), 0.0, 1.0);
-        color += uPointColor[i] * att * pbrLight(N, V, Lp, albedo, F0, rough, metal, aL);
-        nearLight += uPointColor[i] * att;
+        // Lumiere indirecte (pas pour les projecteurs : elle viendrait de l'endroit eclaire, pas de la lampe)
+        if (uBounce > 0.0 && uPointDir[i].w <= -1.0)
+        {
+            float ab = bounceAttenuation(d2, r);
+            if (ab > 0.002)
+                bounce += uPointColor[i] * ab * (0.5 + 0.5 * nl) * bounceVisibility(i, FragPos, N, vis);
+        }
     }
 
     // Ambient: sky / ground, and a blurred reflection of the surroundings (sky, nearby lights)
-    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5);
+    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5) + bounce * uBounce;
     vec3 R = reflect(-V, N);
     vec3 envColor = mix(envSky(R), ambient, clamp(rough * 1.3, 0.0, 1.0)) + nearLight * 0.06;
     vec3 Fenv = envBRDFApprox(F0, rough, NoV);
-    color += (albedo * (1.0 - metal) * ambient * (1.0 - Fenv) + envColor * Fenv) * cavity;
+    color += (albedo * (1.0 - metal) * ambient * (1.0 - Fenv) + envColor * Fenv) * cavity * ao;
     color *= mix(0.55, 1.0, cavity); // deep grooves and seams also receive less direct light
     color += albedo * gEmissive * 4.0 * cavity; // emissive surfaces: the cavity channel is their pattern (screens)
 
@@ -749,19 +856,22 @@ vec4 environmentShade()
 
     float ndl = max(dot(N, L), 0.0);
     float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
+    float ao = screenAO();
+    float aoDirect = mix(1.0, ao, uAoInfo.w);
 
-    vec3 direct = uSunColor * ndl * visibility;
-    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5);
+    vec3 direct = uSunColor * ndl * visibility * aoDirect;
+    vec3 ambient = mix(uGroundAmbient, uSkyAmbient, N.y * 0.5 + 0.5) * ao;
 
     vec3 H = normalize(L + V);
     float fresnel = 0.04 + 0.96 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
     float spec = pow(max(dot(N, H), 0.0), gShininess) * (gShininess + 8.0) / 25.13;
-    vec3 specular = uSunColor * spec * gSpecular * mix(0.25, 1.0, fresnel) * ndl * visibility;
-    vec3 reflection = envSky(reflect(-V, N)) * fresnel * gSpecular * 0.4;
+    vec3 specular = uSunColor * spec * gSpecular * mix(0.25, 1.0, fresnel) * ndl * visibility * aoDirect;
+    vec3 reflection = envSky(reflect(-V, N)) * fresnel * gSpecular * 0.4 * ao;
 
     vec3 color = albedo * (direct + ambient) + specular + reflection + albedo * gEmissive * 4.0;
 
     // Point lights: inverse square falloff, smoothly windowed to zero at the radius
+    vec3 bounce = vec3(0.0);
     for (int i = 0; i < uPointCount; ++i)
     {
         vec3 toLight = uPointPos[i].xyz - FragPos;
@@ -772,16 +882,27 @@ vec4 environmentShade()
         float d = sqrt(d2);
         vec3 Lp = toLight / max(d, 0.0001);
         float att = pointAttenuation(i, Lp, d2, r);
-        float nlp = max(dot(N, Lp), 0.0);
-        if (att * nlp < 0.0005)
-            continue;
-        att *= lightShadow(i, FragPos, N);
-        if (uPointDir[i].w > -1.0)
-            nlp = sqrt(nlp); // a low headlight still lights the road far ahead (grazing incidence)
-        vec3 Hp = normalize(Lp + V);
-        float sp = pow(max(dot(N, Hp), 0.0), gShininess) * (gShininess + 8.0) / 25.13;
-        color += uPointColor[i] * att * nlp * (albedo + sp * gSpecular * mix(0.25, 1.0, fresnel));
+        float nl = dot(N, Lp);
+        float nlp = max(nl, 0.0);
+        float vis = -1.0;
+        if (att * nlp >= 0.0005)
+        {
+            vis = lightShadow(i, FragPos, N);
+            if (uPointDir[i].w > -1.0)
+                nlp = sqrt(nlp); // a low headlight still lights the road far ahead (grazing incidence)
+            vec3 Hp = normalize(Lp + V);
+            float sp = pow(max(dot(N, Hp), 0.0), gShininess) * (gShininess + 8.0) / 25.13;
+            color += uPointColor[i] * att * vis * aoDirect * nlp * (albedo + sp * gSpecular * mix(0.25, 1.0, fresnel));
+        }
+        // Lumiere indirecte (pas pour les projecteurs : elle viendrait de l'endroit eclaire, pas de la lampe)
+        if (uBounce > 0.0 && uPointDir[i].w <= -1.0)
+        {
+            float ab = bounceAttenuation(d2, r);
+            if (ab > 0.002)
+                bounce += uPointColor[i] * ab * (0.5 + 0.5 * nl) * bounceVisibility(i, FragPos, N, vis);
+        }
     }
+    color += albedo * bounce * uBounce * ao;
 
     color = applyFog(color, V, L) * uExposure;
     if (!uLinearOutput)

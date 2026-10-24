@@ -51,6 +51,20 @@ public:
 
     // Crée les buffers GPU du modèle (transformation neutre) avec une couleur unie
     void uploadTo(Model &model, float r, float g, float b) const;
+
+private:
+    // Chaque primitive (box, quad, sphere...) est une pièce : ses sommets portent la priorité de profondeur de sa taille
+    // (Model::DepthPriority), pour que deux pièces fusionnées au même endroit ne se disputent pas les pixels
+    struct Piece
+    {
+        MeshBuilder &b;
+        size_t first;
+        explicit Piece(MeshBuilder &builder) : b(builder), first(builder.verts.size()) { ++b.pieceDepth; }
+        ~Piece() { b.finishPiece(first); }
+    };
+    int pieceDepth = 0;           // primitives en cours (box appelle quad : seule la plus extérieure compte)
+    unsigned int pieceCount = 0;
+    void finishPiece(size_t first);
 };
 
 #endif

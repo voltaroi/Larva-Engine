@@ -6,6 +6,8 @@
 #include "stb_image.h"
 #include <iostream>
 #include <cstring>
+#include <cstddef>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include "ResourcePak.h"
@@ -128,6 +130,11 @@ struct ModelProgInfo
     GLint locExposure = -1;
     GLint locGrime = -1;
     GLint locShadowRange = -1;
+    GLint locAoOn = -1;
+    GLint locAoTex = -1;
+    GLint locAoInfo = -1;
+    GLint locBounce = -1;
+    GLint locDepthPriority = -1;
 };
 static ModelProgInfo g_modelInfo;
 
@@ -211,9 +218,78 @@ static void setupMeshBuffers(Model::Mesh &m)
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void *)(6 * sizeof(float)));
 
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(SimpleVertex), (void *)offsetof(SimpleVertex, priority));
+
     // Unbind VAO after setup
     glBindVertexArray(0);
     m.buffersInitialized = true;
+    for (int k = 0; k < 3; ++k)
+        m.boundsMin[k] = m.verts.empty() ? 0.0f : 1e30f, m.boundsMax[k] = m.verts.empty() ? 0.0f : -1e30f;
+    for (const SimpleVertex &v : m.verts)
+    {
+        const float p[3] = {v.x, v.y, v.z};
+        for (int k = 0; k < 3; ++k)
+            m.boundsMin[k] = std::min(m.boundsMin[k], p[k]), m.boundsMax[k] = std::max(m.boundsMax[k], p[k]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  Depth priority (Model::DepthPriority, model_vertex.glsl): steps of the depth buffer toward the camera
+// ---------------------------------------------------------------------------
+float Model::DepthPriority(float radius, unsigned int tieSeed)
+{
+    int c = (int)std::floor(std::log2(std::max(radius, 1e-4f) / 0.03f) * 0.5f);
+    c = std::max(0, std::min(5, c));
+    tieSeed = (tieSeed ^ (tieSeed >> 16)) * 0x45d9f3bu;
+    tieSeed ^= tieSeed >> 16;
+    return (float)((5 - c) * 8 + (int)(tieSeed & 7u));
+}
+
+static unsigned int hashFloats(const float *v, int n, unsigned int h = 2166136261u)
+{
+    for (int i = 0; i < n; ++i)
+    {
+        unsigned int bits;
+        std::memcpy(&bits, &v[i], sizeof(bits));
+        h = (h ^ bits) * 16777619u;
+    }
+    return h;
+}
+
+// Half size of the model's local box
+static void localHalf(const Model &m, float out[3])
+{
+    float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
+    for (const Model::Mesh &mesh : m.meshes)
+        for (int k = 0; k < 3; ++k)
+            lo[k] = std::min(lo[k], mesh.boundsMin[k]), hi[k] = std::max(hi[k], mesh.boundsMax[k]);
+    for (int k = 0; k < 3; ++k)
+        out[k] = lo[k] <= hi[k] ? 0.5f * (hi[k] - lo[k]) : 0.5f;
+}
+
+// Bounding radius of the local box once transformed (columns taken as orthogonal: rotation and scale)
+static float transformedRadius(const float half[3], const float *matrix)
+{
+    float r2 = 0.0f;
+    for (int k = 0; k < 3; ++k)
+    {
+        const float *c = matrix + 4 * k;
+        r2 += half[k] * half[k] * (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+    }
+    return std::sqrt(r2);
+}
+
+// Priority of a draw(): its size, then the model object and its colour
+static float drawPriority(const Model &m, const float *matrix, bool useColor, const float color[3])
+{
+    float half[3];
+    localHalf(m, half);
+    const unsigned long long address = (unsigned long long)(size_t)&m;
+    unsigned int seed = (unsigned int)(address >> 4) ^ (unsigned int)(address >> 32);
+    if (useColor)
+        seed = hashFloats(color, 3, seed);
+    return Model::DepthPriority(transformedRadius(half, matrix), seed);
 }
 
 // forward declarations so helper functions can be used earlier in this file
@@ -582,6 +658,11 @@ static GLuint createModelProgram()
     g_modelInfo.locExposure = glGetUniformLocation(g_modelProgram, "uExposure");
     g_modelInfo.locGrime = glGetUniformLocation(g_modelProgram, "uGrime");
     g_modelInfo.locShadowRange = glGetUniformLocation(g_modelProgram, "uShadowRange");
+    g_modelInfo.locAoOn = glGetUniformLocation(g_modelProgram, "uAoOn");
+    g_modelInfo.locAoTex = glGetUniformLocation(g_modelProgram, "uAoTex");
+    g_modelInfo.locAoInfo = glGetUniformLocation(g_modelProgram, "uAoInfo");
+    g_modelInfo.locBounce = glGetUniformLocation(g_modelProgram, "uBounce");
+    g_modelInfo.locDepthPriority = glGetUniformLocation(g_modelProgram, "uDepthPriority");
     return g_modelProgram;
 }
 
@@ -592,15 +673,19 @@ static GLuint createModelProgram()
 static const char *PREPASS_VS = R"GLSL(
 #version 330 core
 layout(location = 0) in vec3 aPos;
+layout(location = 3) in float aPriority;
 layout(location = 4) in vec4 iModel0;
 layout(location = 5) in vec4 iModel1;
 layout(location = 6) in vec4 iModel2;
 layout(location = 7) in vec4 iModel3;
+layout(location = 9) in vec4 iMaterial;
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 uniform bool uInstanced;
+uniform float uDepthPriority;
 invariant gl_Position;
+const float DEPTH_STEP = 2.0 / 16777215.0;
 void main()
 {
     mat4 m = model;
@@ -608,6 +693,8 @@ void main()
         m = mat4(iModel0, iModel1, iModel2, iModel3);
     vec4 worldPos = m * vec4(aPos, 1.0);
     gl_Position = projection * view * worldPos;
+    float priority = uInstanced ? iMaterial.w : (aPriority > 0.0 ? aPriority - 1.0 : uDepthPriority);
+    gl_Position.z -= priority * DEPTH_STEP * gl_Position.w;
 }
 )GLSL";
 
@@ -642,7 +729,7 @@ static bool g_depthOnly = false;
 static std::vector<DeferredDraw> g_deferred;
 static std::vector<Model::Instance> g_deferredInstances;
 static GLuint g_prepassProgram = 0;
-static GLint g_prepassLocModel = -1, g_prepassLocView = -1, g_prepassLocProj = -1, g_prepassLocInstanced = -1;
+static GLint g_prepassLocModel = -1, g_prepassLocView = -1, g_prepassLocProj = -1, g_prepassLocInstanced = -1, g_prepassLocPriority = -1;
 
 static GLuint createPrepassProgram()
 {
@@ -679,6 +766,7 @@ static GLuint createPrepassProgram()
     g_prepassLocView = glGetUniformLocation(prog, "view");
     g_prepassLocProj = glGetUniformLocation(prog, "projection");
     g_prepassLocInstanced = glGetUniformLocation(prog, "uInstanced");
+    g_prepassLocPriority = glGetUniformLocation(prog, "uDepthPriority");
     return prog;
 }
 
@@ -750,11 +838,13 @@ static void recordInstanced(Model &m, const Model::Instance *instances, int coun
     g_deferred.push_back(d);
 }
 
-// Depth of a draw() in the prepass (the prepass program is bound)
-static void drawDepthOnly(Model &m, const glm::mat4 &matrix)
+// Depth of a draw() in the prepass (the prepass program is bound); color: the override it is drawn with (or null)
+static void drawDepthOnly(Model &m, const glm::mat4 &matrix, const float *color)
 {
     if (g_prepassLocModel >= 0)
         glUniformMatrix4fv(g_prepassLocModel, 1, GL_FALSE, glm::value_ptr(matrix));
+    if (g_prepassLocPriority >= 0)
+        glUniform1f(g_prepassLocPriority, drawPriority(m, glm::value_ptr(matrix), color != nullptr, color));
     if (g_prepassLocInstanced >= 0)
         glUniform1i(g_prepassLocInstanced, 0);
     for (auto &mesh : m.meshes)
@@ -790,6 +880,352 @@ static void drawShaded(const DeferredDraw &d)
     m.pbr = pbr, m.useColorOverride = useColorOverride;
     m.detailTexture = detailTexture, m.detailScale = detailScale, m.detailStrength = detailStrength;
     m.overrideR = overrideR, m.overrideG = overrideG, m.overrideB = overrideB, m.overrideA = overrideA;
+}
+
+// ---------------------------------------------------------------------------
+//  Screen-space ambient occlusion (SetAmbientOcclusion), from the depth written by the prepass
+// ---------------------------------------------------------------------------
+static float g_aoStrength = 0.0f, g_aoRadius = 0.6f, g_aoDirect = 0.0f;
+static float g_bounce = 0.0f;
+static bool g_aoFailed = false; // the depth could not be copied (unusual framebuffer): no occlusion
+static GLuint g_aoDepthFBO = 0, g_aoDepthTex = 0;
+static GLuint g_aoFBO[2] = {0, 0}, g_aoTex[2] = {0, 0};
+static int g_aoW = 0, g_aoH = 0;
+static GLenum g_aoDepthFormat = 0;
+static GLuint g_aoProgram = 0, g_aoBlurProgram = 0;
+static GLint g_aoLocDepth = -1, g_aoLocProj = -1, g_aoLocProjOff = -1, g_aoLocFullSize = -1, g_aoLocRadius = -1;
+static GLint g_aoBlurLocAo = -1, g_aoBlurLocDir = -1;
+
+static const char *AO_VS = R"GLSL(
+#version 330 core
+layout(location = 0) in vec2 aPos;
+void main()
+{
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+)GLSL";
+
+// One pixel of the half resolution target: the points of the depth buffer around it (a spiral on a disk of uRadius
+// metres) that rise above its tangent plane hide part of the sky. Output: visible part (1: nothing around), linear depth.
+static const char *AO_FS = R"GLSL(
+#version 330 core
+uniform sampler2D uDepth;
+uniform vec4 uProj;    // projection [0][0], [1][1], [2][2], [3][2]
+uniform vec2 uProjOff; // projection [2][0], [2][1]
+uniform vec2 uFullSize;
+uniform float uRadius;
+out vec2 outAo;
+
+vec3 viewPos(vec2 uv)
+{
+    float zn = textureLod(uDepth, uv, 0.0).r * 2.0 - 1.0;
+    float z = -uProj.w / (zn + uProj.z);
+    return vec3((uv * 2.0 - 1.0 + uProjOff) * -z / uProj.xy, z);
+}
+
+void main()
+{
+    vec2 t = 1.0 / uFullSize;
+    vec2 uv = (floor(gl_FragCoord.xy) * 2.0 + 0.5) * t;
+    if (textureLod(uDepth, uv, 0.0).r >= 1.0)
+    {
+        outAo = vec2(1.0, 1e4);
+        return;
+    }
+    vec3 P = viewPos(uv);
+    // Normal from the closest neighbours (the other side of an edge would bend it)
+    vec3 Pr = viewPos(uv + vec2(t.x, 0.0)), Pl = viewPos(uv - vec2(t.x, 0.0));
+    vec3 Pu = viewPos(uv + vec2(0.0, t.y)), Pd = viewPos(uv - vec2(0.0, t.y));
+    vec3 dx = abs(Pr.z - P.z) < abs(P.z - Pl.z) ? Pr - P : P - Pl;
+    vec3 dy = abs(Pu.z - P.z) < abs(P.z - Pd.z) ? Pu - P : P - Pd;
+    vec3 N = normalize(cross(dx, dy));
+    float radiusPx = min(uRadius * uProj.y * 0.5 * uFullSize.y / -P.z, uFullSize.y * 0.1);
+    if (radiusPx < 1.5)
+    {
+        outAo = vec2(1.0, -P.z);
+        return;
+    }
+    float ang = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * 6.2831853;
+    float r2 = uRadius * uRadius;
+    float occ = 0.0;
+    const int COUNT = 12;
+    for (int i = 0; i < COUNT; ++i)
+    {
+        float a = (float(i) + 0.5) / float(COUNT);
+        float th = a * 7.0 * 6.2831853 + ang;
+        vec3 v = viewPos(uv + vec2(cos(th), sin(th)) * radiusPx * a * t) - P;
+        float vv = dot(v, v);
+        occ += max(0.0, dot(v, N) / sqrt(vv + 1e-4) - 0.15) * max(0.0, 1.0 - vv / r2);
+    }
+    outAo = vec2(max(0.0, 1.0 - 2.5 * occ / float(COUNT)), -P.z);
+}
+)GLSL";
+
+// Blur along uDir, only between pixels at the same depth (the noise of the spiral goes, the edges stay)
+static const char *AO_BLUR_FS = R"GLSL(
+#version 330 core
+uniform sampler2D uAo;
+uniform ivec2 uDir;
+out vec2 outAo;
+void main()
+{
+    ivec2 c = ivec2(gl_FragCoord.xy);
+    ivec2 size = textureSize(uAo, 0);
+    vec2 s0 = texelFetch(uAo, c, 0).rg;
+    float sum = s0.r, wsum = 1.0;
+    for (int k = -4; k <= 4; ++k)
+    {
+        if (k == 0)
+            continue;
+        vec2 s = texelFetch(uAo, clamp(c + uDir * k, ivec2(0), size - 1), 0).rg;
+        float w = exp(-float(k * k) / 10.0) * max(0.0, 1.0 - abs(s.g - s0.g) / (0.04 * s0.g + 0.02));
+        sum += s.r * w;
+        wsum += w;
+    }
+    outAo = vec2(sum / wsum, s0.g);
+}
+)GLSL";
+
+static GLuint linkProgram(const char *vsSrc, const char *fsSrc, const char *what)
+{
+    GLuint vs = compileShader(GL_VERTEX_SHADER, vsSrc);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fsSrc);
+    if (!vs || !fs)
+    {
+        if (vs)
+            glDeleteShader(vs);
+        if (fs)
+            glDeleteShader(fs);
+        return 0;
+    }
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok)
+    {
+        char buf[1024];
+        glGetProgramInfoLog(prog, sizeof(buf), nullptr, buf);
+        std::cerr << what << " shader link error: " << buf << std::endl;
+        glDeleteProgram(prog);
+        return 0;
+    }
+    return prog;
+}
+
+static void freeAoTargets()
+{
+    if (g_aoDepthTex)
+        glDeleteTextures(1, &g_aoDepthTex);
+    if (g_aoDepthFBO)
+        glDeleteFramebuffers(1, &g_aoDepthFBO);
+    for (int i = 0; i < 2; ++i)
+    {
+        if (g_aoTex[i])
+            glDeleteTextures(1, &g_aoTex[i]);
+        if (g_aoFBO[i])
+            glDeleteFramebuffers(1, &g_aoFBO[i]);
+        g_aoTex[i] = g_aoFBO[i] = 0;
+    }
+    g_aoDepthTex = g_aoDepthFBO = 0;
+    g_aoW = g_aoH = 0;
+}
+
+// Programs and targets for a w x h viewport; the depth copy takes the format of the framebuffer drawn into
+static bool prepareAo(int w, int h)
+{
+    if (!g_aoProgram)
+    {
+        g_aoProgram = linkProgram(AO_VS, AO_FS, "Ambient occlusion");
+        g_aoBlurProgram = linkProgram(AO_VS, AO_BLUR_FS, "Ambient occlusion blur");
+        if (!g_aoProgram || !g_aoBlurProgram)
+            return false;
+        g_aoLocDepth = glGetUniformLocation(g_aoProgram, "uDepth");
+        g_aoLocProj = glGetUniformLocation(g_aoProgram, "uProj");
+        g_aoLocProjOff = glGetUniformLocation(g_aoProgram, "uProjOff");
+        g_aoLocFullSize = glGetUniformLocation(g_aoProgram, "uFullSize");
+        g_aoLocRadius = glGetUniformLocation(g_aoProgram, "uRadius");
+        g_aoBlurLocAo = glGetUniformLocation(g_aoBlurProgram, "uAo");
+        g_aoBlurLocDir = glGetUniformLocation(g_aoBlurProgram, "uDir");
+    }
+    GLint stencilBits = 0, depthBits = 0;
+    glGetIntegerv(GL_STENCIL_BITS, &stencilBits);
+    glGetIntegerv(GL_DEPTH_BITS, &depthBits);
+    const GLenum format = stencilBits > 0 ? GL_DEPTH24_STENCIL8 : depthBits > 24 ? GL_DEPTH_COMPONENT32 : GL_DEPTH_COMPONENT24;
+    if (w == g_aoW && h == g_aoH && format == g_aoDepthFormat && g_aoDepthFBO)
+        return true;
+    freeAoTargets();
+    g_aoDepthFormat = format;
+    GLint prevFBO = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+    glGenTextures(1, &g_aoDepthTex);
+    glBindTexture(GL_TEXTURE_2D, g_aoDepthTex);
+    if (format == GL_DEPTH24_STENCIL8)
+        glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
+    else
+        glTexImage2D(GL_TEXTURE_2D, 0, format, w, h, 0, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenFramebuffers(1, &g_aoDepthFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_aoDepthFBO);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, format == GL_DEPTH24_STENCIL8 ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, g_aoDepthTex, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    bool ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    const int hw = std::max(1, (w + 1) / 2), hh = std::max(1, (h + 1) / 2);
+    for (int i = 0; i < 2 && ok; ++i)
+    {
+        glGenTextures(1, &g_aoTex[i]);
+        glBindTexture(GL_TEXTURE_2D, g_aoTex[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RG16F, hw, hh, 0, GL_RG, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenFramebuffers(1, &g_aoFBO[i]);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_aoFBO[i]);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_aoTex[i], 0);
+        glDrawBuffer(GL_COLOR_ATTACHMENT0);
+        ok = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO);
+    if (!ok)
+    {
+        freeAoTargets();
+        return false;
+    }
+    g_aoW = w, g_aoH = h;
+    return true;
+}
+
+// Occlusion of the depth drawn so far into g_aoTex[0]; false: none this frame. Leaves the OpenGL state as it found it.
+static bool computeAo()
+{
+    const glm::mat4 &P = g_cachedProjection;
+    if (g_aoFailed || g_aoStrength <= 0.0f || !g_environment.enabled || P[2][3] > -0.5f) // perspective only
+        return false;
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+    if (vp[2] < 8 || vp[3] < 8)
+        return false;
+    GLint prevDraw = 0, prevRead = 0, prevProg = 0, prevVAO = 0, prevTex = 0, prevActive = GL_TEXTURE0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+    glActiveTexture(GL_TEXTURE0);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTex);
+    if (!prepareAo(vp[2], vp[3]))
+    {
+        g_aoFailed = true;
+        glActiveTexture(prevActive);
+        return false;
+    }
+    const bool scissor = glIsEnabled(GL_SCISSOR_TEST) == GL_TRUE, stencil = glIsEnabled(GL_STENCIL_TEST) == GL_TRUE;
+    const bool depth = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE, blend = glIsEnabled(GL_BLEND) == GL_TRUE, cull = glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+    GLboolean depthMask = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    glDisable(GL_SCISSOR_TEST);
+    while (glGetError() != GL_NO_ERROR)
+        ;
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevDraw);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_aoDepthFBO);
+    glBlitFramebuffer(vp[0], vp[1], vp[0] + vp[2], vp[1] + vp[3], 0, 0, vp[2], vp[3], GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+    bool ok = glGetError() == GL_NO_ERROR;
+    if (ok)
+    {
+        initFullScreenQuad();
+        glDisable(GL_STENCIL_TEST);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_BLEND);
+        glDisable(GL_CULL_FACE);
+        glDepthMask(GL_FALSE);
+        const int hw = std::max(1, (g_aoW + 1) / 2), hh = std::max(1, (g_aoH + 1) / 2);
+        glViewport(0, 0, hw, hh);
+        glBindVertexArray(g_quadVAO);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_aoFBO[0]);
+        glUseProgram(g_aoProgram);
+        glBindTexture(GL_TEXTURE_2D, g_aoDepthTex);
+        glUniform1i(g_aoLocDepth, 0);
+        glUniform4f(g_aoLocProj, P[0][0], P[1][1], P[2][2], P[3][2]);
+        glUniform2f(g_aoLocProjOff, P[2][0], P[2][1]);
+        glUniform2f(g_aoLocFullSize, (float)g_aoW, (float)g_aoH);
+        glUniform1f(g_aoLocRadius, g_aoRadius);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glUseProgram(g_aoBlurProgram);
+        glUniform1i(g_aoBlurLocAo, 0);
+        for (int pass = 0; pass < 2; ++pass)
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, g_aoFBO[1 - pass]);
+            glBindTexture(GL_TEXTURE_2D, g_aoTex[pass]);
+            glUniform2i(g_aoBlurLocDir, pass == 0 ? 1 : 0, pass == 0 ? 0 : 1);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        }
+        ok = glGetError() == GL_NO_ERROR;
+    }
+    if (!ok)
+        g_aoFailed = true;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)prevTex);
+    glActiveTexture(prevActive);
+    glBindVertexArray((GLuint)prevVAO);
+    glUseProgram((GLuint)prevProg);
+    if (scissor)
+        glEnable(GL_SCISSOR_TEST);
+    if (stencil)
+        glEnable(GL_STENCIL_TEST);
+    if (depth)
+        glEnable(GL_DEPTH_TEST);
+    if (blend)
+        glEnable(GL_BLEND);
+    if (cull)
+        glEnable(GL_CULL_FACE);
+    glDepthMask(depthMask);
+    if (!ok)
+        return false;
+    // The model shader reads it on unit 8 until the end of the prepass
+    glActiveTexture(GL_TEXTURE8);
+    glBindTexture(GL_TEXTURE_2D, g_aoTex[0]);
+    glActiveTexture(prevActive);
+    glUseProgram(g_modelProgram);
+    glUniform1i(g_modelInfo.locAoTex, 8);
+    glUniform1i(g_modelInfo.locAoOn, 1);
+    glUniform4f(g_modelInfo.locAoInfo, (float)vp[0], (float)vp[1], std::min(g_aoStrength, 1.0f), g_aoDirect);
+    glUseProgram((GLuint)prevProg);
+    return true;
+}
+
+static void endAo()
+{
+    if (!g_modelProgram || g_modelInfo.locAoOn < 0)
+        return;
+    GLint prevProg = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glUseProgram(g_modelProgram);
+    glUniform1i(g_modelInfo.locAoOn, 0);
+    glUseProgram((GLuint)prevProg);
+}
+
+void Model::SetAmbientOcclusion(float strength, float radius, float direct)
+{
+    g_aoStrength = std::max(0.0f, strength);
+    g_aoRadius = std::max(0.05f, radius);
+    g_aoDirect = std::max(0.0f, std::min(1.0f, direct));
+}
+
+void Model::SetBounceLight(float strength)
+{
+    g_bounce = std::max(0.0f, strength);
 }
 
 void Model::SetDepthPrepassEnabled(bool enabled)
@@ -841,12 +1277,20 @@ void Model::EndDepthPrepass()
             if (d.instanced)
                 d.model->drawInstanced(&g_deferredInstances[d.first], d.count);
             else
-                drawDepthOnly(*d.model, d.matrix);
+                drawDepthOnly(*d.model, d.matrix, d.useColorOverride ? d.colorOverride : nullptr);
         }
         g_depthOnly = false;
         glUseProgram(0);
         glColorMask(colorMask[0], colorMask[1], colorMask[2], colorMask[3]);
         glDepthFunc(GL_LEQUAL);
+    }
+    // Ambient occlusion from the depth just written (opaque surfaces only), read by the full shader below
+    bool ao = false;
+    if (prepass && g_aoStrength > 0.0f)
+    {
+        GpuTimer::mark("occlusion");
+        ao = computeAo();
+        GpuTimer::mark("eclairage");
     }
     // Two opaque surfaces at exactly the same depth (a bar across a rail): with GL_LESS the first one drawn stays.
     // GL_LEQUAL would let the last one through, so the stencil keeps the first fragment of each pixel.
@@ -880,6 +1324,8 @@ void Model::EndDepthPrepass()
     if (prepass)
         glDepthFunc(depthFunc);
     applyState(caller);
+    if (ao)
+        endAo();
     g_deferred.clear();
     g_deferredInstances.clear();
 }
@@ -1394,9 +1840,10 @@ void Model::drawWithMatrix(const float matrix[16])
         recordDraw(*this, model);
         return;
     }
+    const float color[3] = {overrideR, overrideG, overrideB};
     if (g_depthOnly)
     {
-        drawDepthOnly(*this, model);
+        drawDepthOnly(*this, model, useColorOverride ? color : nullptr);
         return;
     }
     // Batch meshes by texture to reduce texture binds
@@ -1467,6 +1914,8 @@ void Model::drawWithMatrix(const float matrix[16])
     // Set model matrix using cached uniform location
     if (g_modelInfo.locModel >= 0)
         glUniformMatrix4fv(g_modelInfo.locModel, 1, GL_FALSE, glm::value_ptr(model));
+    if (g_modelInfo.locDepthPriority >= 0)
+        glUniform1f(g_modelInfo.locDepthPriority, drawPriority(*this, matrix, useColorOverride, color));
 
     if (g_modelInfo.locNormalMatrix >= 0)
         glUniformMatrix3fv(g_modelInfo.locNormalMatrix, 1, GL_FALSE, glm::value_ptr(normalMatrix));
@@ -1651,6 +2100,17 @@ void Model::drawInstanced(const Instance *instances, int count)
         return; // shaders without instancing support
     glUniform1i(locInstanced, 1);
 
+    // Depth priority of each instance (its size, then its colour), read by the model and prepass shaders
+    static std::vector<Instance> withPriority;
+    if (!g_shadowPass)
+    {
+        float half[3];
+        localHalf(*this, half);
+        withPriority.assign(instances, instances + count);
+        for (Instance &in : withPriority)
+            in.material[3] = DepthPriority(transformedRadius(half, in.model), hashFloats(in.color, 3));
+        instances = withPriority.data();
+    }
     glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)count * sizeof(Instance), instances, GL_STREAM_DRAW);
     for (auto &m : meshes)
@@ -1796,6 +2256,10 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         glUniform1f(g_modelInfo.locExposure, g_exposure);
     if (g_modelInfo.locGrime >= 0)
         glUniform1f(g_modelInfo.locGrime, g_grime);
+    if (g_modelInfo.locBounce >= 0)
+        glUniform1f(g_modelInfo.locBounce, g_bounce);
+    if (g_modelInfo.locAoOn >= 0)
+        glUniform1i(g_modelInfo.locAoOn, 0); // only between the prepass and its shading
     glUseProgram(0);
 }
 

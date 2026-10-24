@@ -7,6 +7,8 @@ struct SimpleVertex {
     float x, y, z;
     float nx, ny, nz;
     float u, v;
+    // Depth priority of the piece this vertex belongs to, + 1 (MeshBuilder fills it); 0: the model's own priority
+    float priority = 0.0f;
 };
 
 class Model {
@@ -47,7 +49,7 @@ public:
     {
         float model[16];
         float color[4];
-        float material[4]; // specular, shininess, emissive, unused
+        float material[4]; // specular, shininess, emissive, (depth priority: filled by drawInstanced)
     };
     void drawInstanced(const Instance *instances, int count);
 
@@ -135,6 +137,23 @@ public:
     static void EndDepthPrepass();
     // false: Begin/EndDepthPrepass do nothing (draws are immediate, as without them)
     static void SetDepthPrepassEnabled(bool enabled);
+    // Screen-space ambient occlusion (environment lighting, perspective camera): computed in EndDepthPrepass from the
+    // depth of the prepass, so only what is drawn between Begin/EndDepthPrepass receives it. Corners, creases and the
+    // ground under objects lose part of their ambient and bounce light. strength: 0 = off (default) .. 1;
+    // radius: reach in metres; direct: share also applied to direct light (0 = physically right, more = more contrast)
+    static void SetAmbientOcclusion(float strength, float radius = 0.6f, float direct = 0.0f);
+    // Bounce light of omnidirectional point lights (environment lighting): each one also lights its surroundings softly,
+    // without direction, as the light sent back by the walls and the floor around it. It does not go through what
+    // blocks the lamp (shadow maps or grid). 0 = off (default), 1 = normal
+    static void SetBounceLight(float strength);
+
+    // Depth priority: of two surfaces at the same place (closer than the depth buffer can tell apart, which makes stripes
+    // that move with the camera), the one with the higher priority always stays in front. Every draw gets one by itself:
+    // the smaller object wins (a poster in front of its wall, a plank in front of its post; size classes of a factor 4,
+    // from 3 cm to 30 m), then a fixed order taken from the object (model and colour, instance colour, piece of a
+    // MeshBuilder mesh). The surface is moved toward the camera by a few steps of the depth buffer only (the biggest
+    // objects not at all). Returns the priority of an object of this bounding radius (m); tieSeed: any fixed number.
+    static float DepthPriority(float radius, unsigned int tieSeed);
 
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);
@@ -162,6 +181,7 @@ public:
         unsigned int VBO = 0;
         unsigned int EBO = 0;
         bool buffersInitialized = false;
+        float boundsMin[3] = {0.0f, 0.0f, 0.0f}, boundsMax[3] = {0.0f, 0.0f, 0.0f}; // local box, set with the buffers
     };
 
     std::vector<Mesh> meshes;
