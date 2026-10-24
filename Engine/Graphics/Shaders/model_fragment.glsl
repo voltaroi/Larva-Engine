@@ -642,6 +642,93 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
     return vec4(color, gObjectAlpha);
 }
 
+// ---- Procedural dirt: a fake texture on everything drawn, without any image (Model::SetGrime) ----
+// uGrime: overall strength (0 = off, 1 = light, 2 = strong). The noise lives in object space (animated parts and
+// carried objects keep their grain while moving) and fades out with distance.
+uniform float uGrime;
+
+float grimeHash(vec2 p)
+{
+    vec3 q = fract(vec3(p.xyx) * 0.1031);
+    q += dot(q, q.yzx + 33.33);
+    return fract((q.x + q.y) * q.z);
+}
+
+float grimeNoise(vec2 p)
+{
+    vec2 i = floor(p), f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(grimeHash(i), grimeHash(i + vec2(1.0, 0.0)), f.x),
+               mix(grimeHash(i + vec2(0.0, 1.0)), grimeHash(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+
+// 0..1 noise projected on the three axes (w: weight of each face)
+float grimeTri(vec3 p, vec3 w)
+{
+    return grimeNoise(p.zy) * w.x + grimeNoise(p.xz + 17.3) * w.y + grimeNoise(p.xy + 41.7) * w.z;
+}
+
+void applyGrime(inout vec3 albedo, inout vec3 N)
+{
+    float dist = length(viewPos - FragPos);
+    float fade = (1.0 - smoothstep(35.0, 110.0, dist)) * uGrime / (1.0 + gEmissive * 3.0);
+    if (fade <= 0.001)
+        return;
+    vec3 ln = normalize(LocalNormal);
+    vec3 w = pow(abs(ln), vec3(4.0));
+    w /= (w.x + w.y + w.z);
+    // Each instanced part has its own offset (from its colour), otherwise identical boxes would share the same grain
+    vec3 p = LocalPos + (uInstanced ? vec3(dot(InstColor.rgb, vec3(37.0, 17.0, 29.0))) : vec3(0.0));
+
+    float blotch = grimeTri(p * 0.55, w);                                     // wide patches
+    float fine = 1.0 - smoothstep(6.0, 20.0, dist);                           // fine details only up close (no shimmering)
+    float grain = grimeTri(p * 4.0, w) * (0.65 + 0.35 * (1.0 - fine)) + grimeTri(p * 9.0, w) * 0.35 * fine; // medium grain
+    float speck = grimeNoise(p.xz * 31.0 + p.y * 17.0);                       // fine pitting
+
+    float up = clamp(normalize(Normal).y, 0.0, 1.0);
+
+    // Tint variation: light and dark patches, grain
+    float shade = (blotch - 0.5) * 0.34 + (grain - 0.5) * 0.22 + (speck - 0.5) * 0.08 * fine;
+    albedo *= 1.0 + shade * fade;
+
+    // Grime: darker, browner areas that build up in places and towards the bottom of objects
+    float low = 1.0 - smoothstep(0.0, 0.7, p.y * 0.5 + 0.5);
+    float grime = smoothstep(0.45, 0.8, blotch * 0.7 + grain * 0.3 + 0.12 * low);
+    albedo = mix(albedo, albedo * vec3(0.55, 0.5, 0.43), grime * 0.5 * fade);
+
+    // Ash settled on upward faces
+    float ash = smoothstep(0.6, 1.0, up) * smoothstep(0.35, 0.75, grain);
+    albedo = mix(albedo, vec3(0.3, 0.29, 0.27), ash * 0.09 * fade);
+
+    // Rust streaks down the sides
+    float streak = grimeNoise(vec2((p.x + p.z) * 7.0, p.y * 0.9)) * grimeNoise(vec2((p.x - p.z) * 3.0 + 5.0, p.y * 0.35));
+    float side = 1.0 - smoothstep(0.35, 0.8, abs(ln.y));
+    albedo = mix(albedo, vec3(0.34, 0.14, 0.05), smoothstep(0.22, 0.5, streak) * side * 0.2 * fade);
+
+    // Rust on metal (materials with a strong specular): orange-brown patches that eat the shine
+    float metal = smoothstep(0.09, 0.25, gSpecular);
+    float rust = 0.0;
+    if (metal > 0.0)
+    {
+        float rn = grimeTri(p * 1.4, w) * 0.55 + grain * 0.3 + grimeNoise(p.xz * 3.0 + p.y * 2.0) * 0.15 + 0.14 * low;
+        rust = smoothstep(0.52, 0.7, rn) * metal;
+        vec3 rustCol = mix(vec3(0.2, 0.07, 0.025), vec3(0.55, 0.22, 0.06), smoothstep(0.3, 0.8, speck * 0.6 + grain * 0.4));
+        albedo = mix(albedo, rustCol, rust * 0.8 * min(fade, 1.0));
+        gSpecular *= 1.0 - 0.85 * rust * min(fade, 1.0);
+    }
+
+    // Relief: the grain tilts the normal a little (screen-space derivatives, no texture coordinates needed)
+    float h = grain * 0.7 + speck * 0.3 * fine + rust * 0.5;
+    vec3 dpdx = dFdx(FragPos), dpdy = dFdy(FragPos);
+    vec3 r1 = cross(dpdy, N), r2 = cross(N, dpdx);
+    float det = dot(dpdx, r1);
+    if (abs(det) > 1e-10)
+    {
+        vec3 grad = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+        N = normalize(abs(det) * N - 0.04 * fade * fine * grad);
+    }
+}
+
 vec4 environmentShade()
 {
     vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : gObjectColor;
@@ -654,6 +741,7 @@ vec4 environmentShade()
     applyDetail(N, roughOffset, cavity);
     if (dot(normalize(Normal), V) < 0.0)
         N = -N; // faces vues de dos (meshes ouverts)
+    applyGrime(albedo, N);
 
     if (uPBR)
         return pbrShade(albedo, N, V, L, roughOffset, cavity);

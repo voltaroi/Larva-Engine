@@ -120,6 +120,9 @@ public:
     static void EnablePointShadowMaps(bool enabled);
     // Brightness applied before tone mapping (1: unchanged)
     static void SetExposure(float exposure);
+    // Procedural dirt on everything drawn with the environment (colour variation, grime, ash, rust streaks, grain bump):
+    // 0 = off (default), 1 = light, 2 = strong
+    static void SetGrime(float strength);
 
     // Material used when the environment is enabled
     void setMaterial(float specular, float shininess, float emissive = 0.0f);

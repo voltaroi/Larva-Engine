@@ -58,6 +58,7 @@ static float g_shadowRange = 0.0f; // 0: no limit
 static int g_pointSlot[Model::MAX_POINT_LIGHTS];
 static float g_slotLamp[Model::MAX_SHADOW_LAMPS * 4];
 static float g_exposure = 1.0f;
+static float g_grime = 0.0f;
 static glm::mat4 g_lightSpaceMatrix = glm::mat4(1.0f);
 static glm::vec3 g_lightPos = glm::vec3(5.0f, 10.0f, 5.0f);
 static glm::vec3 g_lightTarget = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -123,6 +124,7 @@ struct ModelProgInfo
     GLint locPointSlot = -1;
     GLint locSlotLamp = -1;
     GLint locExposure = -1;
+    GLint locGrime = -1;
     GLint locShadowRange = -1;
 };
 static ModelProgInfo g_modelInfo;
@@ -576,6 +578,7 @@ static GLuint createModelProgram()
     g_modelInfo.locPointSlot = glGetUniformLocation(g_modelProgram, "uPointSlot");
     g_modelInfo.locSlotLamp = glGetUniformLocation(g_modelProgram, "uSlotLamp");
     g_modelInfo.locExposure = glGetUniformLocation(g_modelProgram, "uExposure");
+    g_modelInfo.locGrime = glGetUniformLocation(g_modelProgram, "uGrime");
     g_modelInfo.locShadowRange = glGetUniformLocation(g_modelProgram, "uShadowRange");
     return g_modelProgram;
 }
@@ -1461,6 +1464,8 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         glUniform1f(g_modelInfo.locShadowRange, g_shadowRange > 0.0f ? g_shadowRange : 1e6f);
     if (g_modelInfo.locExposure >= 0)
         glUniform1f(g_modelInfo.locExposure, g_exposure);
+    if (g_modelInfo.locGrime >= 0)
+        glUniform1f(g_modelInfo.locGrime, g_grime);
     glUseProgram(0);
 }
 
@@ -1769,6 +1774,11 @@ void Model::EnablePointShadowMaps(bool enabled)
 void Model::SetExposure(float exposure)
 {
     g_exposure = std::max(0.05f, exposure);
+}
+
+void Model::SetGrime(float strength)
+{
+    g_grime = std::max(0.0f, std::min(3.0f, strength));
 }
 
 void Model::SetPointShadowGrid(const float *cells, int width, int height, float originX, float originZ, float cellSize)
