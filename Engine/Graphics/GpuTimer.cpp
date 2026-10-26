@@ -1,5 +1,6 @@
 #include <GL/glew.h>
 #include "GpuTimer.h"
+#include "RenderTrace.h"
 #include <cstring>
 #include <string>
 #include <vector>
@@ -98,6 +99,7 @@ namespace GpuTimer
 
     void mark(const char *label)
     {
+        RenderTrace::step("%s", label);
         if (!on)
             return;
         Frame &f = frames[current];

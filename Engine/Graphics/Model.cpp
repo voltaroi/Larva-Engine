@@ -12,6 +12,7 @@
 #include <fstream>
 #include "ResourcePak.h"
 #include "GpuTimer.h"
+#include "RenderTrace.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -50,6 +51,8 @@ static GLuint g_cubeFBO[2] = {0, 0};
 static GLuint g_cubeSamplerCmp = 0, g_cubeSamplerRaw = 0;
 static GLuint g_cubeProgram = 0;
 static GLint g_cubeLocModel = -1, g_cubeLocAlpha = -1, g_cubeLocInstanced = -1, g_cubeLocViewProj = -1, g_cubeLocLamp = -1, g_cubeLocClear = -1;
+static GLuint g_cubeCopyProgram = 0, g_cubeCopyVAO = 0;
+static GLint g_cubeCopyLocLayer = -1;
 static int g_cubeLamps = 0, g_cubeRes = 0;
 static bool g_cubeOn = false;
 static bool g_cubePass = false;
@@ -382,6 +385,14 @@ static GLuint compileShader(GLenum type, const std::string &src)
     glCompileShader(s);
     GLint ok = 0;
     glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+    if (RenderTrace::isOpen())
+    {
+        // Les avertissements aussi : un pilote qui accepte mal un shader le dit souvent ici
+        char buf[2048] = "";
+        glGetShaderInfoLog(s, sizeof(buf), nullptr, buf);
+        RenderTrace::line("shader %s (%u octets) %s%s%s", type == GL_VERTEX_SHADER ? "sommets" : "fragments", (unsigned)src.size(),
+                          ok ? "compile" : "ECHEC", buf[0] ? " : " : "", buf);
+    }
     if (!ok)
     {
         char buf[1024];
@@ -584,6 +595,12 @@ static GLuint createModelProgram()
     glLinkProgram(prog);
     GLint ok = 0;
     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (RenderTrace::isOpen())
+    {
+        char buf[2048] = "";
+        glGetProgramInfoLog(prog, sizeof(buf), nullptr, buf);
+        RenderTrace::line("programme des modeles %s%s%s", ok ? "lie" : "ECHEC DE LIEN", buf[0] ? " : " : "", buf);
+    }
     if (!ok)
     {
         char buf[1024];
@@ -663,6 +680,18 @@ static GLuint createModelProgram()
     g_modelInfo.locAoInfo = glGetUniformLocation(g_modelProgram, "uAoInfo");
     g_modelInfo.locBounce = glGetUniformLocation(g_modelProgram, "uBounce");
     g_modelInfo.locDepthPriority = glGetUniformLocation(g_modelProgram, "uDepthPriority");
+    // The two shadow samplers have different types: left on the default unit 0 they would share it, which strict drivers
+    // (Radeon) refuse or choke on at the first draw. Give them their own units even when the shadow maps are off.
+    {
+        GLint prevProgram = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+        glUseProgram(g_modelProgram);
+        if (g_modelInfo.locCubeShadow >= 0)
+            glUniform1i(g_modelInfo.locCubeShadow, 6);
+        if (g_modelInfo.locCubeDepth >= 0)
+            glUniform1i(g_modelInfo.locCubeDepth, 7);
+        glUseProgram((GLuint)prevProgram);
+    }
     return g_modelProgram;
 }
 
@@ -2360,6 +2389,65 @@ static GLuint createCubeProgram()
     return prog;
 }
 
+// Cache copy as a plain draw (one triangle over the face, depth written from the cache layer): depth blits and image
+// copies between layers of a depth array have frozen Radeon drivers, an ordinary draw works everywhere
+static const char *CUBE_COPY_VS = R"GLSL(
+#version 330 core
+void main()
+{
+    vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+    gl_Position = vec4(p, 0.0, 1.0);
+}
+)GLSL";
+
+static const char *CUBE_COPY_FS = R"GLSL(
+#version 330 core
+uniform sampler2DArray uSrc;
+uniform int uLayer;
+void main()
+{
+    gl_FragDepth = texelFetch(uSrc, ivec3(gl_FragCoord.xy, uLayer), 0).r;
+}
+)GLSL";
+
+static GLuint createCubeCopyProgram()
+{
+    if (g_cubeCopyProgram)
+        return g_cubeCopyProgram;
+    GLuint vs = compileShader(GL_VERTEX_SHADER, CUBE_COPY_VS);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, CUBE_COPY_FS);
+    if (!vs || !fs)
+    {
+        if (vs)
+            glDeleteShader(vs);
+        if (fs)
+            glDeleteShader(fs);
+        return 0;
+    }
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    GLint ok = 0;
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok)
+    {
+        glDeleteProgram(prog);
+        return 0;
+    }
+    g_cubeCopyProgram = prog;
+    g_cubeCopyLocLayer = glGetUniformLocation(prog, "uLayer");
+    GLint prevProgram = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+    glUseProgram(prog);
+    glUniform1i(glGetUniformLocation(prog, "uSrc"), 7);
+    glUseProgram((GLuint)prevProgram);
+    glGenVertexArrays(1, &g_cubeCopyVAO);
+    return prog;
+}
+
 static void freeCubeMaps()
 {
     for (int s = 0; s < 2; ++s)
@@ -2419,26 +2507,35 @@ bool Model::SetupPointShadowMaps(int lamps, int resolution)
     if (glGetError() != GL_NO_ERROR)
     {
         std::cerr << "Point shadow maps: allocation failed" << std::endl;
+        RenderTrace::line("cartes d'ombre des lampes : ECHEC d'allocation (%d lampes, %d px)", lamps, resolution);
         freeCubeMaps();
         return false;
     }
     g_cubeLamps = lamps, g_cubeRes = resolution;
-    // Everything far (lit) until the caller draws the maps
+    RenderTrace::line("cartes d'ombre des lampes : %d lampes, %d px, %d couches x2", lamps, resolution, lamps * 6);
+    // Not cleared here (a whole burst of work when the quality changes): a face is cleared when it is drawn, and a slot is
+    // only sampled once its six faces are
     GLint prevFBO = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
     for (int s = 0; s < 2; ++s)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[s]);
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[s], 0, 0);
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
-        for (int layer = 0; layer < lamps * 6; ++layer)
-        {
-            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[s], 0, layer);
-            glClearDepth(1.0);
-            glClear(GL_DEPTH_BUFFER_BIT);
-        }
     }
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO);
+    if (RenderTrace::detailed())
+    {
+        const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        GLint prev = 0;
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[1]);
+        const GLenum cubeStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prev);
+        RenderTrace::line("cartes d'ombre creees, framebuffer 0x%04X, carte 0x%04X, erreur 0x%04X", (unsigned)status, (unsigned)cubeStatus,
+                          (unsigned)glGetError());
+    }
     return true;
 }
 
@@ -2457,6 +2554,13 @@ void Model::BeginPointShadowFace(int set, int slot, int face, const float pos[3]
         glGetIntegerv(GL_VIEWPORT, g_prevViewport);
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &g_cubePrevFBO);
         g_cubePrevCull = glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+        // The map being drawn must not still be bound for sampling (units 6 and 7 of the last frame's shading)
+        for (int unit = 6; unit <= 7; ++unit)
+        {
+            glActiveTexture(GL_TEXTURE0 + unit);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        }
+        glActiveTexture(GL_TEXTURE0);
         glUseProgram(g_cubeProgram);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[set]);
@@ -2521,6 +2625,60 @@ void Model::CopyPointShadowCache(int slot, int faceMask)
 {
     if (g_cubeLamps <= 0 || slot < 0 || slot >= g_cubeLamps || (faceMask & 63) == 0)
         return;
+    if (createCubeCopyProgram())
+    {
+        GLint prevProgram = 0, prevFBO = 0, prevVAO = 0, prevActive = 0, prevDepthFunc = GL_LESS, prevViewport[4];
+        GLboolean prevDepthMask = GL_TRUE;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFBO);
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVAO);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActive);
+        glGetIntegerv(GL_DEPTH_FUNC, &prevDepthFunc);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
+        glGetIntegerv(GL_VIEWPORT, prevViewport);
+        const bool prevDepthTest = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE, prevCull = glIsEnabled(GL_CULL_FACE) == GL_TRUE,
+                   prevBlend = glIsEnabled(GL_BLEND) == GL_TRUE;
+        // The cache is read on unit 7 (raw), never the sampled map: units 6 and 7 must not hold the target
+        glActiveTexture(GL_TEXTURE6);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, g_cubeTex[0]);
+        glBindSampler(7, 0);
+        glUseProgram(g_cubeCopyProgram);
+        glBindVertexArray(g_cubeCopyVAO);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_cubeFBO[1]);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        glViewport(0, 0, g_cubeRes, g_cubeRes);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_ALWAYS);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_BLEND);
+        for (int face = 0; face < 6; ++face)
+        {
+            if (!((faceMask >> face) & 1))
+                continue;
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, g_cubeTex[1], 0, slot * 6 + face);
+            glUniform1i(g_cubeCopyLocLayer, slot * 6 + face);
+            glDrawArrays(GL_TRIANGLES, 0, 3);
+        }
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        glActiveTexture((GLenum)prevActive);
+        glBindVertexArray((GLuint)prevVAO);
+        glUseProgram((GLuint)prevProgram);
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFBO);
+        glViewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+        glDepthFunc((GLenum)prevDepthFunc);
+        glDepthMask(prevDepthMask);
+        if (!prevDepthTest)
+            glDisable(GL_DEPTH_TEST);
+        if (prevCull)
+            glEnable(GL_CULL_FACE);
+        if (prevBlend)
+            glEnable(GL_BLEND);
+        return;
+    }
     GLint prevRead = 0, prevDraw = 0;
     glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);

@@ -1,4 +1,5 @@
 #include "Lighting.h"
+#include "RenderTrace.h"
 #include <algorithm>
 #include <cmath>
 #include <unordered_map>
@@ -23,6 +24,9 @@ namespace
     struct Slot
     {
         bool used = false, cached = false;
+        // Faces of the cache drawn (6: up to date). A few faces per frame, never a whole burst: a new map is used once its
+        // six faces are there, a map to redraw keeps being used, its faces replaced one by one
+        int facesDone = 0;
         int dirty = 63; // faces of the map read by the shader that differ from the cache (moving casters were drawn there)
         float pos[3] = {0.0f, 0.0f, 0.0f};
         float radius = 0.0f, clear = 0.0f;
@@ -53,7 +57,8 @@ namespace
     // Lamps with a map, face resolution, filter, static maps redrawn per frame at most, by quality (0 to 4)
     void tier(int q, int &lamps, int &res, int &filter, int &budget)
     {
-        static const int L[5] = {0, 4, 8, 12, 16}, R[5] = {0, 256, 512, 512, 768}, F[5] = {0, 0, 1, 2, 3}, B[5] = {0, 2, 2, 3, 4};
+        // budget: faces of the static cache drawn per frame (a new quality, a new room: the maps fill over a few frames)
+        static const int L[5] = {0, 4, 8, 12, 16}, R[5] = {0, 256, 512, 512, 768}, F[5] = {0, 0, 1, 2, 3}, B[5] = {0, 6, 6, 6, 6};
         q = std::max(0, std::min(4, q));
         lamps = L[q], res = R[q], filter = F[q], budget = B[q];
     }
@@ -174,7 +179,7 @@ namespace
             for (const Caster *c : changed)
                 if (inReach(s, c->c, c->r))
                 {
-                    s.cached = false, s.dirty = 63;
+                    s.facesDone = 0;
                     break;
                 }
         }
@@ -310,11 +315,12 @@ namespace Lighting
             return;
         }
         g_lastRes = res;
+        RenderTrace::step("ombres : cartes pretes (%d lampes, %d px)", lamps, res);
         if (g_staticDirty)
         {
             g_staticDirty = false;
             for (Slot &s : g_slots)
-                s.cached = false, s.dirty = 63;
+                s.facesDone = 0;
         }
 
         // Candidates: bright shadowed lights whose light reaches the shadow range
@@ -368,22 +374,25 @@ namespace Lighting
         for (const Caster &c : g_settledList)
             settledFace.push_back(&c);
 
-        // Static scene into the caches: the closest lamps first, a few per frame
+        // Static scene into the caches: the closest lamps first, a few faces per frame (a lamp is used once its six are done)
         for (size_t k = 0; k < want.size() && budget > 0; ++k)
         {
             const int si = want[k];
-            if (si < 0 || g_slots[si].cached)
+            if (si < 0 || g_slots[si].facesDone >= 6)
                 continue;
             Slot &s = g_slots[si];
-            for (int face = 0; face < 6; ++face)
+            for (; s.facesDone < 6 && budget > 0; ++s.facesDone, --budget)
             {
+                const int face = s.facesDone;
                 const ShadowView view = {{s.pos[0], s.pos[1], s.pos[2]}, s.radius, face};
                 Model::BeginPointShadowFace(0, si, face, s.pos, s.radius, s.clear);
                 drawStatic(view);
                 drawCasters(settledFace, view);
+                s.dirty |= 1 << face; // to copy into the sampled map
+                RenderTrace::step("ombres : decor de la lampe %d (case %d) face %d", (int)k, si, face);
             }
-            s.cached = true, s.dirty = 63;
-            --budget;
+            if (s.facesDone == 6)
+                s.cached = true;
         }
         Model::EndPointShadowFaces();
 
@@ -415,6 +424,7 @@ namespace Lighting
                     movingFaces |= 1 << face;
             }
             Model::CopyPointShadowCache(si, s.dirty | movingFaces);
+            RenderTrace::step("ombres : copie du cache case %d (faces %d)", si, s.dirty | movingFaces);
             s.dirty = movingFaces;
             for (int face = 0; face < 6; ++face)
             {
@@ -423,6 +433,7 @@ namespace Lighting
                 const ShadowView view = {{s.pos[0], s.pos[1], s.pos[2]}, s.radius, face};
                 Model::BeginPointShadowFace(1, si, face, s.pos, s.radius, s.clear);
                 drawCasters(faceList[face], view);
+                RenderTrace::step("ombres : %d corps mobiles case %d face %d", (int)faceList[face].size(), si, face);
             }
         }
         Model::EndPointShadowFaces();
@@ -430,5 +441,6 @@ namespace Lighting
         Model::SetPointShadowFilter(filter, 0.08f + 0.52f * g_settings.softness);
         Model::SetPointShadowSlots((int)g_sent.size(), slotOfLight.data(), slotPos.data());
         Model::EnablePointShadowMaps(true);
+        RenderTrace::step("ombres : %d lampes avec carte", (int)want.size());
     }
 }

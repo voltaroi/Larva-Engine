@@ -359,7 +359,8 @@ float cubeTest(int s, vec4 lamp, vec3 Q, float bias)
 {
     vec3 v = Q - lamp.xyz;
     float ref = (length(v) - bias) / lamp.w;
-    return texture(uCubeShadow, vec4(cubeCoord(s, v), ref));
+    // No mipmaps: explicit zero gradients, no derivatives inside the loops and branches of the filter (Radeon)
+    return textureGrad(uCubeShadow, vec4(cubeCoord(s, v), ref), vec2(0.0), vec2(0.0));
 }
 
 float noiseIGN(vec2 p)
@@ -413,7 +414,7 @@ float cubeShadow(int s, vec3 P, vec3 N)
             vec2 o = vogel(k, 8, ang + 1.7) * radius;
             vec3 v = Pb + b1 * o.x + b2 * o.y - lamp.xyz;
             float dq = length(v);
-            float occ = texture(uCubeDepth, cubeCoord(s, v)).r * lamp.w;
+            float occ = textureLod(uCubeDepth, cubeCoord(s, v), 0.0).r * lamp.w;
             if (occ < dq - bias - length(o) * 0.05)
             {
                 found += 1.0;

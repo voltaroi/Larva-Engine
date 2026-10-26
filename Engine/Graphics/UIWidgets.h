@@ -22,11 +22,15 @@ public:
         float accent[4] = {0.9f, 0.35f, 0.1f, 1.0f};    // partie remplie des curseurs
         float radius = 10.0f;
         float textScale = 0.55f;
+        // Fond des grands boutons abîmés au lieu du rectangle : 0 rectangle, 1 plaque de métal rouillée, 2 planche clouée, 3 béton fissuré
+        int plate = 0;
     };
 
     static Theme &theme() { return currentTheme; }
     // Survol des boutons : du sang rouge coule sur le bouton au lieu du simple changement de couleur (désactivé par défaut)
     static bool bloodHover;
+    // Le sang du survol, dessiné à part (cartes de la boutique) : coule quand hover est vrai, remonte sinon ; repart de zéro après une absence
+    static void drawBlood(float x, float y, float w, float h, bool hover);
 
     // --- Entrées ---
     // y en pixels depuis le bas de la fenêtre
@@ -64,7 +68,7 @@ public:
     static bool blocked() { return modalActive && !inModal; }
 
 private:
-    static void drawBlood(float x, float y, float w, float h, bool hover);
+    static void drawPlate(int style, float x, float y, float w, float h, bool hover, bool enabled);
     static Theme currentTheme;
     static int mx, my;
     static bool pressed, released;
