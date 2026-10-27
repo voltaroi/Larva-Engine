@@ -29,6 +29,9 @@ public:
     static Theme &theme() { return currentTheme; }
     // Survol des boutons : du sang rouge coule sur le bouton au lieu du simple changement de couleur (désactivé par défaut)
     static bool bloodHover;
+    // Survol « clignotant » : à l'arrivée de la souris, le bouton s'assombrit légèrement deux fois de suite puis redevient normal (sans effet
+    // si bloodHover est actif au moment de dessiner le bouton : le sang prime)
+    static bool blinkHover;
     // Le sang du survol, dessiné à part (cartes de la boutique) : coule quand hover est vrai, remonte sinon ; repart de zéro après une absence
     static void drawBlood(float x, float y, float w, float h, bool hover);
 
@@ -68,7 +71,8 @@ public:
     static bool blocked() { return modalActive && !inModal; }
 
 private:
-    static void drawPlate(int style, float x, float y, float w, float h, bool hover, bool enabled);
+    static void drawPlate(int style, float x, float y, float w, float h, bool hover, bool enabled, float shade = 1.0f);
+    static double hoverStart; // instant où la souris est arrivée sur le bouton survolé
     static Theme currentTheme;
     static int mx, my;
     static bool pressed, released;

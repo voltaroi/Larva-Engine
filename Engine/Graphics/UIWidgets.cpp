@@ -8,6 +8,8 @@
 
 UIWidgets::Theme UIWidgets::currentTheme;
 bool UIWidgets::bloodHover = false;
+bool UIWidgets::blinkHover = false;
+double UIWidgets::hoverStart = 0.0;
 bool UIWidgets::hoverNew = false;
 bool UIWidgets::hoverSeen = false;
 unsigned long long UIWidgets::hoverKey = 0;
@@ -146,7 +148,7 @@ void UIWidgets::drawBlood(float x, float y, float w, float h, bool hover)
 
 // Fond abîmé d'un grand bouton, tracé en tranches : la forme (bords en dents, coins arrachés) et les taches sont tirées de la
 // place du bouton à l'écran, donc chaque bouton a la sienne et elle ne bouge pas d'une image à l'autre.
-void UIWidgets::drawPlate(int style, float x, float y, float w, float h, bool hover, bool enabled)
+void UIWidgets::drawPlate(int style, float x, float y, float w, float h, bool hover, bool enabled, float shade)
 {
     const unsigned long long key = ((unsigned long long)(unsigned)(int)x << 40) ^ ((unsigned long long)(unsigned)(int)y << 20) ^ ((unsigned long long)(unsigned)(int)w << 8) ^ (unsigned)(int)h;
     auto rnd = [key](int i, int salt) {
@@ -156,7 +158,7 @@ void UIWidgets::drawPlate(int style, float x, float y, float w, float h, bool ho
         v ^= v >> 15;
         return ((v >> 8) & 0xFFFF) / 65535.0f;
     };
-    const float dim = enabled ? 1.0f : 0.55f;
+    const float dim = (enabled ? 1.0f : 0.55f) * shade;
     auto box = [&](float bx, float by, float bw, float bh, float r, float g, float b, float a, float rad = 0.0f) {
         if (bw > 0.0f && bh > 0.0f)
             UI::drawBox(bx, by, bw, bh, r * dim, g * dim, b * dim, a, false, rad);
@@ -478,16 +480,31 @@ bool UIWidgets::button(const std::string &label, float x, float y, float w, floa
         // Bouton reconnu par sa place à l'écran : on note quand la souris vient d'y entrer
         const unsigned long long key = (((unsigned long long)(unsigned)(int)x << 40) ^ ((unsigned long long)(unsigned)(int)y << 20) ^ ((unsigned long long)(unsigned)(int)w << 8) ^ (unsigned)(int)h) | 1ull;
         if (key != hoverKey)
+        {
             hoverNew = true;
+            hoverStart = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
         hoverKey = key;
         hoverSeen = true;
     }
-    const float *c = !enabled ? t.buttonDisabled : (hover && !bloodHover ? t.buttonHover : t.button);
+    // Clignotement : à l'arrivée de la souris seulement, le bouton s'assombrit deux fois de suite (en 0,2 s), puis
+    // reprend son aspect normal. Sans sang ni rouge de survol.
+    float shade = 1.0f;
+    const bool blink = hover && blinkHover && !bloodHover;
+    if (blink)
+    {
+        const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        const float age = (float)(now - hoverStart);
+        if (age >= 0.0f && age < 0.2f && std::fmod(age, 0.1f) < 0.05f)
+            shade = 0.72f;
+    }
+    const bool shown = hover && !bloodHover && !blink;
+    const float *c = !enabled ? t.buttonDisabled : (shown ? t.buttonHover : t.button);
     const bool plate = t.plate > 0 && (t.plate >= 7 ? (w >= 20.0f && h >= 20.0f) : (w >= 100.0f && h >= 36.0f)); // les petits boutons (flèches, + / -) restent simples, sauf les touches
     if (plate)
-        drawPlate(t.plate, x, y, w, h, hover && !bloodHover, enabled);
+        drawPlate(t.plate, x, y, w, h, shown, enabled, shade);
     else
-        UI::drawBox(x, y, w, h, c[0], c[1], c[2], c[3], false, t.radius);
+        UI::drawBox(x, y, w, h, c[0] * shade, c[1] * shade, c[2] * shade, c[3], false, t.radius);
     if (bloodHover && enabled)
         drawBlood(x, y, w, h, hover);
     const UI::Style &st = UI::style();
