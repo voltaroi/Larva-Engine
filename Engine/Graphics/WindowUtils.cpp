@@ -66,6 +66,25 @@ namespace
         return CallWindowProcA(originalProc, hwnd, msg, wParam, lParam);
     }
 
+    // Barre de titre sombre (Windows 10 1809+ / 11) : dwmapi chargée à la volée, sans effet sur les Windows plus anciens
+    void darkTitleBar(HWND hwnd)
+    {
+        static HMODULE dwm = LoadLibraryA("dwmapi.dll");
+        if (!dwm)
+            return;
+        typedef HRESULT(WINAPI * SetAttr)(HWND, DWORD, LPCVOID, DWORD);
+        static SetAttr set = (SetAttr)GetProcAddress(dwm, "DwmSetWindowAttribute");
+        if (!set)
+            return;
+        BOOL dark = TRUE;
+        if (FAILED(set(hwnd, 20, &dark, sizeof(dark)))) // DWMWA_USE_IMMERSIVE_DARK_MODE
+            set(hwnd, 19, &dark, sizeof(dark));         // même attribut avant Windows 10 20H1
+        COLORREF caption = RGB(13, 13, 15), text = RGB(200, 200, 205);
+        set(hwnd, 35, &caption, sizeof(caption)); // DWMWA_CAPTION_COLOR (Windows 11)
+        set(hwnd, 36, &text, sizeof(text));       // DWMWA_TEXT_COLOR
+        set(hwnd, 34, &caption, sizeof(caption)); // DWMWA_BORDER_COLOR
+    }
+
     HWND findWindow(const char *name)
     {
         HWND hwnd = FindWindowA(NULL, name);
@@ -135,6 +154,7 @@ void WindowUtils::setWindowMode(WindowMode newMode, int windowedWidth, int windo
             ww = work.right - work.left;
         if (wh > work.bottom - work.top)
             wh = work.bottom - work.top;
+        darkTitleBar(hwnd);
         SetWindowLong(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
         SetWindowPos(hwnd, HWND_NOTOPMOST, work.left + (work.right - work.left - ww) / 2, work.top + (work.bottom - work.top - wh) / 2, ww, wh,
                      SWP_SHOWWINDOW | SWP_FRAMECHANGED);

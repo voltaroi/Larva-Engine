@@ -28,15 +28,21 @@ namespace
         // six faces are there, a map to redraw keeps being used, its faces replaced one by one
         int facesDone = 0;
         int dirty = 63; // faces of the map read by the shader that differ from the cache (moving casters were drawn there)
+        int fresh = 63; // faces of the cache redrawn since the sampled map was last refreshed
         float pos[3] = {0.0f, 0.0f, 0.0f};
         float radius = 0.0f, clear = 0.0f;
         int seen = 0; // last frame its lamp was chosen
+        int movingId = 0; // see Lighting::Light
+        int faces = 63;   // faces drawn this frame (moving lamp: those its cone reaches)
     };
 
     struct Candidate
     {
         int light; // index in g_sent
     };
+
+    // Moving lamps with a map: each one redraws the scene every frame, the others keep the grid
+    const int MAX_MOVING_MAPS = 2;
 
     Lighting::Settings g_settings;
     float g_eye[3] = {0.0f, 0.0f, 0.0f};
@@ -61,6 +67,52 @@ namespace
         static const int L[5] = {0, 4, 8, 12, 16}, R[5] = {0, 256, 512, 512, 768}, F[5] = {0, 0, 1, 2, 3}, B[5] = {0, 6, 6, 6, 6};
         q = std::max(0, std::min(4, q));
         lamps = L[q], res = R[q], filter = F[q], budget = B[q];
+    }
+
+    // Faces of the cube map reached by a spot: the axis and two rings of its cone, a little wider than the light
+    int spotFaces(const Lighting::Light &l)
+    {
+        float axes[6][3];
+        for (int face = 0; face < 6; ++face)
+        {
+            float up[3], t;
+            Model::PointShadowFaceAxes(face, axes[face], up, t);
+        }
+        if (l.cone <= -1.0f)
+            return 63;
+        const float *d = l.dir;
+        const float h[3] = {std::fabs(d[1]) < 0.9f ? 0.0f : 1.0f, std::fabs(d[1]) < 0.9f ? 1.0f : 0.0f, 0.0f};
+        float u[3] = {d[1] * h[2] - d[2] * h[1], d[2] * h[0] - d[0] * h[2], d[0] * h[1] - d[1] * h[0]};
+        const float ul = std::sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
+        for (float &c : u)
+            c /= ul;
+        const float v[3] = {d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]};
+        const float wide = std::min(1.5f, std::acos(std::max(-1.0f, std::min(1.0f, l.cone))) + 0.12f);
+        int mask = 0;
+        auto mark = [&](const float p[3])
+        {
+            int best = 0;
+            float bestDot = -2.0f;
+            for (int face = 0; face < 6; ++face)
+            {
+                const float dot = p[0] * axes[face][0] + p[1] * axes[face][1] + p[2] * axes[face][2];
+                if (dot > bestDot)
+                    bestDot = dot, best = face;
+            }
+            mask |= 1 << best;
+        };
+        mark(d);
+        for (int ring = 1; ring <= 2; ++ring)
+        {
+            const float a = wide * ring * 0.5f, ca = std::cos(a), sa = std::sin(a);
+            for (int i = 0; i < 24; ++i)
+            {
+                const float t = (float)i * 0.2617994f, ct = std::cos(t) * sa, st = std::sin(t) * sa;
+                const float p[3] = {d[0] * ca + u[0] * ct + v[0] * st, d[1] * ca + u[1] * ct + v[1] * st, d[2] * ca + u[2] * ct + v[2] * st};
+                mark(p);
+            }
+        }
+        return mask;
     }
 
     const Bounds &boundsOf(const Model &m)
@@ -114,6 +166,73 @@ namespace
     {
         const float dx = c[0] - s.pos[0], dy = c[1] - s.pos[1], dz = c[2] - s.pos[2], reach = s.radius + r;
         return dx * dx + dy * dy + dz * dz < reach * reach;
+    }
+
+    // Moving casters close to each other, tested together: a crowd is thousands of boxes, each one tested against each
+    // face of each lamp otherwise
+    struct CasterGroup
+    {
+        float c[3], r;
+        std::vector<const Caster *> items;
+    };
+
+    std::vector<CasterGroup> groupCasters(const std::vector<const Caster *> &list)
+    {
+        const float CELL = 2.0f;
+        std::unordered_map<unsigned long long, int> cells;
+        std::vector<CasterGroup> groups;
+        for (const Caster *c : list)
+        {
+            const unsigned long long key = ((unsigned long long)(long long)std::floor(c->c[0] / CELL) & 0x1fffff) |
+                                           (((unsigned long long)(long long)std::floor(c->c[1] / CELL) & 0x1fffff) << 21) |
+                                           (((unsigned long long)(long long)std::floor(c->c[2] / CELL) & 0x1fffff) << 42);
+            auto it = cells.find(key);
+            int g;
+            if (it == cells.end())
+            {
+                g = (int)groups.size();
+                cells[key] = g;
+                groups.emplace_back();
+                groups[g].c[0] = groups[g].c[1] = groups[g].c[2] = groups[g].r = 0.0f;
+            }
+            else
+                g = it->second;
+            groups[g].items.push_back(c);
+        }
+        for (CasterGroup &g : groups)
+        {
+            for (const Caster *c : g.items)
+                for (int k = 0; k < 3; ++k)
+                    g.c[k] += c->c[k] / (float)g.items.size();
+            for (const Caster *c : g.items)
+            {
+                const float dx = c->c[0] - g.c[0], dy = c->c[1] - g.c[1], dz = c->c[2] - g.c[2];
+                g.r = std::max(g.r, std::sqrt(dx * dx + dy * dy + dz * dz) + c->r);
+            }
+        }
+        return groups;
+    }
+
+    // Draws the casters of the groups (already known to be seen by the face), one instanced draw per model
+    void drawGroups(const std::vector<const CasterGroup *> &list)
+    {
+        static std::vector<Model::Instance> batch;
+        Model *current = nullptr;
+        for (const CasterGroup *g : list)
+            for (const Caster *c : g->items)
+            {
+                if (c->model != current)
+                {
+                    if (current && !batch.empty())
+                        current->drawInstanced(batch.data(), (int)batch.size());
+                    batch.clear();
+                    current = c->model;
+                }
+                batch.push_back(c->inst);
+            }
+        if (current && !batch.empty())
+            current->drawInstanced(batch.data(), (int)batch.size());
+        batch.clear();
     }
 
     // Draws the casters of the list seen by a face, one instanced draw per model
@@ -210,13 +329,13 @@ namespace Lighting
 
     bool FaceSees(const ShadowView &view, const float center[3], float radius)
     {
-        float f[3], u[3], t;
-        Model::PointShadowFaceAxes(view.face, f, u, t);
-        const float r[3] = {f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]};
         const float v[3] = {center[0] - view.pos[0], center[1] - view.pos[1], center[2] - view.pos[2]};
         const float reach = view.radius + radius;
         if (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] > reach * reach)
             return false;
+        float f[3], u[3], t;
+        Model::PointShadowFaceAxes(view.face, f, u, t);
+        const float r[3] = {f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]};
         const float fz = v[0] * f[0] + v[1] * f[1] + v[2] * f[2];
         const float fx = v[0] * r[0] + v[1] * r[1] + v[2] * r[2], fy = v[0] * u[0] + v[1] * u[1] + v[2] * u[2];
         const float slack = radius * std::sqrt(1.0f + t * t) + 0.05f;
@@ -326,12 +445,14 @@ namespace Lighting
         // Candidates: bright shadowed lights whose light reaches the shadow range
         std::vector<Candidate> cands;
         const float range = g_settings.shadowRange;
+        int movingMaps = 0;
         for (size_t i = 0; i < g_sent.size(); ++i)
         {
             const Light &l = g_sent[i];
             const float dx = l.pos[0] - g_eye[0], dy = l.pos[1] - g_eye[1], dz = l.pos[2] - g_eye[2];
             const float reach = range + l.radius;
-            if (l.shadowClear > 0.0f && l.color[0] + l.color[1] + l.color[2] > 0.6f && dx * dx + dy * dy + dz * dz < reach * reach)
+            if (l.shadowClear > 0.0f && l.color[0] + l.color[1] + l.color[2] > 0.6f && dx * dx + dy * dy + dz * dz < reach * reach &&
+                (l.movingId <= 0 || movingMaps++ < MAX_MOVING_MAPS))
                 cands.push_back({(int)i});
         }
         // The chosen lamps keep their map; the new ones take those used least recently
@@ -343,8 +464,10 @@ namespace Lighting
             const Light &l = g_sent[c.light];
             int found = -1;
             for (int s = 0; s < lamps; ++s)
-                if (g_slots[s].used && std::fabs(g_slots[s].pos[0] - l.pos[0]) < 0.01f && std::fabs(g_slots[s].pos[1] - l.pos[1]) < 0.01f &&
-                    std::fabs(g_slots[s].pos[2] - l.pos[2]) < 0.01f && std::fabs(g_slots[s].radius - l.radius) < 0.01f)
+                if (g_slots[s].used && (l.movingId > 0 ? g_slots[s].movingId == l.movingId
+                                                       : g_slots[s].movingId == 0 && std::fabs(g_slots[s].pos[0] - l.pos[0]) < 0.01f &&
+                                                             std::fabs(g_slots[s].pos[1] - l.pos[1]) < 0.01f && std::fabs(g_slots[s].pos[2] - l.pos[2]) < 0.01f &&
+                                                             std::fabs(g_slots[s].radius - l.radius) < 0.01f))
                     found = s;
             if (found >= 0)
                 g_slots[found].seen = g_frame;
@@ -364,6 +487,7 @@ namespace Lighting
             Slot &s = g_slots[best];
             s = Slot();
             s.used = true, s.radius = l.radius, s.clear = l.shadowClear, s.seen = g_frame;
+            s.movingId = l.movingId;
             for (int a = 0; a < 3; ++a)
                 s.pos[a] = l.pos[a];
             want[k] = best;
@@ -373,6 +497,32 @@ namespace Lighting
         std::vector<const Caster *> settledFace;
         for (const Caster &c : g_settledList)
             settledFace.push_back(&c);
+
+        // Moving lamps: redrawn where they are now, on the faces their cone reaches, whatever the budget
+        for (size_t k = 0; k < want.size(); ++k)
+        {
+            const int si = want[k];
+            if (si < 0 || g_slots[si].movingId <= 0)
+                continue;
+            Slot &s = g_slots[si];
+            const Light &l = g_sent[cands[k].light];
+            for (int a = 0; a < 3; ++a)
+                s.pos[a] = l.pos[a];
+            s.radius = l.radius, s.clear = l.shadowClear;
+            s.faces = spotFaces(l);
+            s.facesDone = 6, s.cached = true;
+            for (int face = 0; face < 6; ++face)
+            {
+                if (!(s.faces >> face & 1))
+                    continue;
+                const ShadowView view = {{s.pos[0], s.pos[1], s.pos[2]}, s.radius, face};
+                Model::BeginPointShadowFace(0, si, face, s.pos, s.radius, s.clear);
+                drawStatic(view);
+                drawCasters(settledFace, view);
+                s.dirty |= 1 << face;
+                RenderTrace::step("ombres : lampe mobile case %d face %d", si, face);
+            }
+        }
 
         // Static scene into the caches: the closest lamps first, a few faces per frame (a lamp is used once its six are done)
         for (size_t k = 0; k < want.size() && budget > 0; ++k)
@@ -389,6 +539,7 @@ namespace Lighting
                 drawStatic(view);
                 drawCasters(settledFace, view);
                 s.dirty |= 1 << face; // to copy into the sampled map
+                s.fresh |= 1 << face;
                 RenderTrace::step("ombres : decor de la lampe %d (case %d) face %d", (int)k, si, face);
             }
             if (s.facesDone == 6)
@@ -399,7 +550,8 @@ namespace Lighting
         // Moving casters: only on the faces where something moves (this frame or the previous one), on top of the cache
         std::vector<int> slotOfLight(Model::MAX_POINT_LIGHTS, -1);
         std::vector<float> slotPos(Model::MAX_SHADOW_LAMPS * 4, 0.0f);
-        std::vector<const Caster *> reached, faceList[6];
+        const std::vector<CasterGroup> groups = groupCasters(moving);
+        std::vector<const CasterGroup *> reached, faceList[6];
         for (size_t k = 0; k < want.size(); ++k)
         {
             const int si = want[k];
@@ -408,18 +560,23 @@ namespace Lighting
             Slot &s = g_slots[si];
             slotOfLight[cands[k].light] = si;
             slotPos[si * 4 + 0] = s.pos[0], slotPos[si * 4 + 1] = s.pos[1], slotPos[si * 4 + 2] = s.pos[2], slotPos[si * 4 + 3] = s.radius;
+            // Far lamps show moving bodies every 2 or 3 frames, in turn: their shadows are small and the frames do not all pay for them
+            const int period = s.movingId > 0 || k < 6 ? 1 : k < 10 ? 2 : 3;
+            if (!s.fresh && (g_frame + si) % period != 0)
+                continue;
+            s.fresh = 0;
             reached.clear();
-            for (const Caster *c : moving)
-                if (inReach(s, c->c, c->r))
-                    reached.push_back(c);
+            for (const CasterGroup &g : groups)
+                if (inReach(s, g.c, g.r))
+                    reached.push_back(&g);
             int movingFaces = 0;
             for (int face = 0; face < 6; ++face)
             {
                 faceList[face].clear();
                 const ShadowView view = {{s.pos[0], s.pos[1], s.pos[2]}, s.radius, face};
-                for (const Caster *c : reached)
-                    if (FaceSees(view, c->c, c->r))
-                        faceList[face].push_back(c);
+                for (const CasterGroup *g : reached)
+                    if ((s.faces >> face & 1) && FaceSees(view, g->c, g->r))
+                        faceList[face].push_back(g);
                 if (!faceList[face].empty())
                     movingFaces |= 1 << face;
             }
@@ -432,8 +589,8 @@ namespace Lighting
                     continue;
                 const ShadowView view = {{s.pos[0], s.pos[1], s.pos[2]}, s.radius, face};
                 Model::BeginPointShadowFace(1, si, face, s.pos, s.radius, s.clear);
-                drawCasters(faceList[face], view);
-                RenderTrace::step("ombres : %d corps mobiles case %d face %d", (int)faceList[face].size(), si, face);
+                drawGroups(faceList[face]);
+                RenderTrace::step("ombres : %d groupes mobiles case %d face %d", (int)faceList[face].size(), si, face);
             }
         }
         Model::EndPointShadowFaces();

@@ -13,6 +13,7 @@
 namespace RenderTrace
 {
     void open(const char *path);
+    void close();
     bool isOpen();
     void line(const char *fmt, ...);
     // Carte graphique, pilote, limites et extensions utiles

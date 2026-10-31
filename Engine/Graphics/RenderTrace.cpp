@@ -47,6 +47,16 @@ namespace RenderTrace
         line("==================== session %s ====================", date);
     }
 
+    void close()
+    {
+        if (!file)
+            return;
+        line("==================== journal coupe ====================");
+        std::fclose(file);
+        file = nullptr;
+        detailFrames = 0;
+    }
+
     bool isOpen() { return file != nullptr; }
 
     void line(const char *fmt, ...)

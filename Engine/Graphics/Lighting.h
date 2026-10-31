@@ -25,6 +25,9 @@ namespace Lighting
         // > 0: the light may get a shadow map, and what is closer than this to it does not cast shadows (the fixture
         // around the bulb, the machine it sits in). 0: no shadow map
         float shadowClear = 0.0f;
+        // > 0: a lamp that moves every frame (a torch), this number being its identity. Its map has no cache: the faces its
+        // cone reaches are redrawn each frame, so a moving spot costs about a static lamp's six faces at most
+        int movingId = 0;
     };
 
     struct Settings
