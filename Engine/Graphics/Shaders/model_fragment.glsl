@@ -3,6 +3,11 @@
 in vec3 FragPos;
 in vec3 Normal;
 in vec2 TexCoord;
+noperspective in vec2 TexCoordFlat;
+uniform float uAffine;   // 0: perspective correct texture, 1: none (Model::SetRetroGeometry)
+uniform float uAlphaCut; // > 0: texels below this alpha are holes (Model::setAlphaCut)
+uniform float uFoliageThrough; // > 0: light goes through the leaf (Model::setFoliage)
+vec2 gUv;
 in vec4 FragPosLightSpace;
 in vec3 LocalPos;
 in vec3 LocalNormal;
@@ -127,7 +132,7 @@ float esmShadow(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir)
 
 vec4 legacyShade()
 {
-    vec4 texColor = texture(diffuseTexture, TexCoord);
+    vec4 texColor = texture(diffuseTexture, gUv);
     vec3 baseColor = hasTexture ? texColor.rgb : gObjectColor;
     
     float ambientStrength = 0.3;
@@ -686,6 +691,13 @@ vec3 applyFog(vec3 color, vec3 V, vec3 L)
     return mix(color, fogColor, fog);
 }
 
+// A thin leaf lit from behind: what crosses it turns yellower, and looking toward the light it shines the most
+vec3 leafThrough(vec3 albedo, vec3 N, vec3 V, vec3 L)
+{
+    float crossing = max(dot(-N, L), 0.0) + 2.5 * pow(max(dot(V, -L), 0.0), 4.0);
+    return albedo * vec3(1.15, 1.25, 0.5) * crossing * uFoliageThrough;
+}
+
 vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavity)
 {
     float rough = clamp(uRoughness + roughOffset * 0.5, 0.04, 1.0);
@@ -698,6 +710,8 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
     float aoDirect = mix(1.0, ao, uAoInfo.w);
     float visibility = (1.0 - envShadow(FragPosLightSpace, N, L)) * cloudLight(FragPos);
     vec3 color = uSunColor * pbrLight(N, V, L, albedo, F0, rough, metal, a) * visibility * aoDirect;
+    if (uFoliageThrough > 0.0)
+        color += uSunColor * leafThrough(albedo, N, V, L) * visibility * aoDirect;
 
     // Point lights: small spheres (radius 0.25) so that glossy surfaces show a visible reflection
     vec3 nearLight = vec3(0.0);
@@ -717,7 +731,11 @@ vec4 pbrShade(vec3 albedo, vec3 N, vec3 V, vec3 L, float roughOffset, float cavi
         if (att >= 0.0005)
         {
             if (nl <= 0.0)
+            {
                 nearLight += uPointColor[i] * att; // de dos : pas de lumiere directe, donc pas d'ombre a chercher
+                if (uFoliageThrough > 0.0)
+                    color += uPointColor[i] * att * lightShadow(i, FragPos, -N) * aoDirect * leafThrough(albedo, N, V, Lp);
+            }
             else
             {
                 vis = lightShadow(i, FragPos, N);
@@ -839,7 +857,7 @@ void applyGrime(inout vec3 albedo, inout vec3 N)
 
 vec4 environmentShade()
 {
-    vec3 base = hasTexture ? texture(diffuseTexture, TexCoord).rgb : gObjectColor;
+    vec3 base = hasTexture ? texture(diffuseTexture, gUv).rgb : gObjectColor;
     vec3 albedo = pow(base, vec3(2.2));
 
     vec3 N = normalize(Normal);
@@ -913,6 +931,9 @@ vec4 environmentShade()
 
 void main()
 {
+    gUv = mix(TexCoord, TexCoordFlat, uAffine);
+    if (uAlphaCut > 0.0 && texture(diffuseTexture, gUv).a < uAlphaCut)
+        discard;
     gObjectColor = uInstanced ? InstColor.rgb : objectColor;
     gObjectAlpha = uInstanced ? InstColor.a : objectAlpha;
     gSpecular = uInstanced ? InstMaterial.x : uSpecular;

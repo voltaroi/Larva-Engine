@@ -131,6 +131,8 @@ struct ModelProgInfo
     GLint locPointSlot = -1;
     GLint locSlotLamp = -1;
     GLint locExposure = -1;
+    GLint locVertexSnap = -1, locAffine = -1, locAlphaCut = -1;
+    GLint locWind = -1, locFoliageSway = -1, locFoliageThrough = -1;
     GLint locGrime = -1;
     GLint locShadowRange = -1;
     GLint locAoOn = -1;
@@ -673,6 +675,12 @@ static GLuint createModelProgram()
     g_modelInfo.locPointSlot = glGetUniformLocation(g_modelProgram, "uPointSlot");
     g_modelInfo.locSlotLamp = glGetUniformLocation(g_modelProgram, "uSlotLamp");
     g_modelInfo.locExposure = glGetUniformLocation(g_modelProgram, "uExposure");
+    g_modelInfo.locVertexSnap = glGetUniformLocation(g_modelProgram, "uVertexSnap");
+    g_modelInfo.locAffine = glGetUniformLocation(g_modelProgram, "uAffine");
+    g_modelInfo.locAlphaCut = glGetUniformLocation(g_modelProgram, "uAlphaCut");
+    g_modelInfo.locWind = glGetUniformLocation(g_modelProgram, "uWind");
+    g_modelInfo.locFoliageSway = glGetUniformLocation(g_modelProgram, "uFoliageSway");
+    g_modelInfo.locFoliageThrough = glGetUniformLocation(g_modelProgram, "uFoliageThrough");
     g_modelInfo.locGrime = glGetUniformLocation(g_modelProgram, "uGrime");
     g_modelInfo.locShadowRange = glGetUniformLocation(g_modelProgram, "uShadowRange");
     g_modelInfo.locAoOn = glGetUniformLocation(g_modelProgram, "uAoOn");
@@ -702,6 +710,7 @@ static GLuint createModelProgram()
 static const char *PREPASS_VS = R"GLSL(
 #version 330 core
 layout(location = 0) in vec3 aPos;
+layout(location = 2) in vec2 aTexCoord;
 layout(location = 3) in float aPriority;
 layout(location = 4) in vec4 iModel0;
 layout(location = 5) in vec4 iModel1;
@@ -713,24 +722,51 @@ uniform mat4 view;
 uniform mat4 projection;
 uniform bool uInstanced;
 uniform float uDepthPriority;
+uniform vec2 uVertexSnap;
+uniform vec4 uWind;
+uniform float uFoliageSway;
+out vec2 TexCoord;
+noperspective out vec2 TexCoordFlat;
 invariant gl_Position;
 const float DEPTH_STEP = 2.0 / 16777215.0;
+vec3 foliageBend(vec3 p, float along)
+{
+    float across = dot(p.xz, uWind.yz);
+    float gust = 0.55 + 0.45 * sin(across * 0.09 - uWind.x * 0.6);                   // a wide front crossing the place
+    float sway = sin(across * 0.5 - uWind.x * 1.7 + p.y * 0.3);                      // the branch
+    float flutter = sin(uWind.x * 5.3 + p.x * 2.1 + p.z * 1.7 + p.y * 1.3);          // the leaves
+    float reach = clamp(along, 0.0, 1.0);
+    vec3 down = vec3(uWind.y, 0.0, uWind.z), aside = vec3(-uWind.z, 0.0, uWind.y);
+    return (down * gust * (0.6 + 0.4 * sway) + (aside * 0.15 + vec3(0.0, 0.22, 0.0)) * flutter * (gust + 0.3)) * reach * reach * uFoliageSway * uWind.w;
+}
 void main()
 {
+    TexCoord = TexCoordFlat = aTexCoord;
     mat4 m = model;
     if (uInstanced)
         m = mat4(iModel0, iModel1, iModel2, iModel3);
     vec4 worldPos = m * vec4(aPos, 1.0);
+    if (uFoliageSway > 0.0)
+        worldPos.xyz += foliageBend(worldPos.xyz, aTexCoord.y);
     gl_Position = projection * view * worldPos;
     float priority = uInstanced ? iMaterial.w : (aPriority > 0.0 ? aPriority - 1.0 : uDepthPriority);
     gl_Position.z -= priority * DEPTH_STEP * gl_Position.w;
+    if (uVertexSnap.x > 0.0 && gl_Position.w > 0.0)
+        gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uVertexSnap + 0.5) / uVertexSnap * gl_Position.w;
 }
 )GLSL";
 
 static const char *PREPASS_FS = R"GLSL(
 #version 330 core
+in vec2 TexCoord;
+noperspective in vec2 TexCoordFlat;
+uniform sampler2D uCutTexture;
+uniform float uAffine;
+uniform float uAlphaCut;
 void main()
 {
+    if (uAlphaCut > 0.0 && texture(uCutTexture, mix(TexCoord, TexCoordFlat, uAffine)).a < uAlphaCut)
+        discard;
 }
 )GLSL";
 
@@ -759,6 +795,9 @@ static std::vector<DeferredDraw> g_deferred;
 static std::vector<Model::Instance> g_deferredInstances;
 static GLuint g_prepassProgram = 0;
 static GLint g_prepassLocModel = -1, g_prepassLocView = -1, g_prepassLocProj = -1, g_prepassLocInstanced = -1, g_prepassLocPriority = -1;
+static GLint g_prepassLocSnap = -1, g_prepassLocAffine = -1, g_prepassLocCut = -1, g_prepassLocWind = -1, g_prepassLocSway = -1;
+static float g_vertexSnap[2] = {0.0f, 0.0f}, g_affine = 0.0f;
+static float g_wind[4] = {0.0f, 1.0f, 0.0f, 0.0f};
 
 static GLuint createPrepassProgram()
 {
@@ -796,6 +835,11 @@ static GLuint createPrepassProgram()
     g_prepassLocProj = glGetUniformLocation(prog, "projection");
     g_prepassLocInstanced = glGetUniformLocation(prog, "uInstanced");
     g_prepassLocPriority = glGetUniformLocation(prog, "uDepthPriority");
+    g_prepassLocSnap = glGetUniformLocation(prog, "uVertexSnap");
+    g_prepassLocAffine = glGetUniformLocation(prog, "uAffine");
+    g_prepassLocWind = glGetUniformLocation(prog, "uWind");
+    g_prepassLocSway = glGetUniformLocation(prog, "uFoliageSway");
+    g_prepassLocCut = glGetUniformLocation(prog, "uAlphaCut");
     return prog;
 }
 
@@ -876,14 +920,25 @@ static void drawDepthOnly(Model &m, const glm::mat4 &matrix, const float *color)
         glUniform1f(g_prepassLocPriority, drawPriority(m, glm::value_ptr(matrix), color != nullptr, color));
     if (g_prepassLocInstanced >= 0)
         glUniform1i(g_prepassLocInstanced, 0);
+    if (g_prepassLocCut >= 0)
+        glUniform1f(g_prepassLocCut, m.alphaCut);
+    if (g_prepassLocSway >= 0)
+        glUniform1f(g_prepassLocSway, m.foliageSway);
     for (auto &mesh : m.meshes)
     {
         if (!mesh.buffersInitialized)
             continue;
+        if (m.alphaCut > 0.0f)
+        {
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, mesh.textureId);
+        }
         glBindVertexArray(mesh.VAO);
         glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, 0);
     }
     glBindVertexArray(0);
+    if (g_prepassLocSway >= 0)
+        glUniform1f(g_prepassLocSway, 0.0f);
 }
 
 // The recorded draw with the full shader and the material it had when it was recorded
@@ -1296,6 +1351,14 @@ void Model::EndDepthPrepass()
             glUniformMatrix4fv(g_prepassLocView, 1, GL_FALSE, glm::value_ptr(g_cachedView));
         if (g_prepassLocProj >= 0)
             glUniformMatrix4fv(g_prepassLocProj, 1, GL_FALSE, glm::value_ptr(g_cachedProjection));
+        if (g_prepassLocSnap >= 0)
+            glUniform2f(g_prepassLocSnap, g_vertexSnap[0], g_vertexSnap[1]);
+        if (g_prepassLocAffine >= 0)
+            glUniform1f(g_prepassLocAffine, g_affine);
+        if (g_prepassLocWind >= 0)
+            glUniform4fv(g_prepassLocWind, 1, g_wind);
+        if (g_prepassLocCut >= 0)
+            glUniform1f(g_prepassLocCut, 0.0f);
         glDepthFunc(GL_LESS);
         g_depthOnly = true;
         for (const DeferredDraw &d : g_deferred)
@@ -1996,6 +2059,13 @@ void Model::drawWithMatrix(const float matrix[16])
             }
         }
 
+        if (g_modelInfo.locAlphaCut >= 0)
+            glUniform1f(g_modelInfo.locAlphaCut, alphaCut);
+        if (g_modelInfo.locFoliageSway >= 0)
+            glUniform1f(g_modelInfo.locFoliageSway, foliageSway);
+        if (g_modelInfo.locFoliageThrough >= 0)
+            glUniform1f(g_modelInfo.locFoliageThrough, foliageThrough);
+
         // Cache previous uniform values to avoid redundant driver calls
         glm::vec3 prevColor(-1.0f, -1.0f, -1.0f);
         float prevAlpha = -1.0f;
@@ -2124,6 +2194,12 @@ void Model::drawInstanced(const Instance *instances, int count)
             glUniform1i(g_modelInfo.locHasDetail, 0);
         if (g_modelInfo.locHasTexture >= 0)
             glUniform1i(g_modelInfo.locHasTexture, 0);
+        if (g_modelInfo.locAlphaCut >= 0)
+            glUniform1f(g_modelInfo.locAlphaCut, 0.0f);
+        if (g_modelInfo.locFoliageSway >= 0)
+            glUniform1f(g_modelInfo.locFoliageSway, 0.0f);
+        if (g_modelInfo.locFoliageThrough >= 0)
+            glUniform1f(g_modelInfo.locFoliageThrough, 0.0f);
     }
     if (locInstanced < 0)
         return; // shaders without instancing support
@@ -2283,6 +2359,12 @@ void Model::SetFrameUniforms(const float view[16], const float projection[16])
         glUniform1f(g_modelInfo.locShadowRange, g_shadowRange > 0.0f ? g_shadowRange : 1e6f);
     if (g_modelInfo.locExposure >= 0)
         glUniform1f(g_modelInfo.locExposure, g_exposure);
+    if (g_modelInfo.locVertexSnap >= 0)
+        glUniform2f(g_modelInfo.locVertexSnap, g_vertexSnap[0], g_vertexSnap[1]);
+    if (g_modelInfo.locAffine >= 0)
+        glUniform1f(g_modelInfo.locAffine, g_affine);
+    if (g_modelInfo.locWind >= 0)
+        glUniform4fv(g_modelInfo.locWind, 1, g_wind);
     if (g_modelInfo.locGrime >= 0)
         glUniform1f(g_modelInfo.locGrime, g_grime);
     if (g_modelInfo.locBounce >= 0)
@@ -2721,6 +2803,16 @@ void Model::SetPointShadowRange(float meters)
 void Model::EnablePointShadowMaps(bool enabled)
 {
     g_cubeOn = enabled && g_cubeLamps > 0;
+}
+
+void Model::SetRetroGeometry(float snapX, float snapY, float affine)
+{
+    g_vertexSnap[0] = snapX, g_vertexSnap[1] = snapY, g_affine = affine;
+}
+
+void Model::SetWind(float time, float dirX, float dirZ, float strength)
+{
+    g_wind[0] = time, g_wind[1] = dirX, g_wind[2] = dirZ, g_wind[3] = strength;
 }
 
 void Model::SetExposure(float exposure)

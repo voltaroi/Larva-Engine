@@ -124,6 +124,12 @@ public:
     static void EnablePointShadowMaps(bool enabled);
     // Brightness applied before tone mapping (1: unchanged)
     static void SetExposure(float exposure);
+    // PS1 look, read by SetFrameUniforms and the depth prepass. snapX, snapY: vertices snap to that grid of clip space
+    // (half the resolution for whole pixels), 0: off. affine: 0..1, how much textures lose perspective correction.
+    static void SetRetroGeometry(float snapX, float snapY, float affine);
+    // Wind for the models with setFoliage, read by SetFrameUniforms and the depth prepass. time: seconds, keeps running;
+    // dirX, dirZ: where it blows, unit length; strength: 1 is a steady breeze
+    static void SetWind(float time, float dirX, float dirZ, float strength);
     // Procedural dirt on everything drawn with the environment (colour variation, grime, ash, rust streaks, grain bump):
     // 0 = off (default), 1 = light, 2 = strong
     static void SetGrime(float strength);
@@ -168,6 +174,14 @@ public:
     // A = cavity / ambient occlusion (1 = none). scale: repetitions per unit; strength: 0..1 (normal and
     // cavity intensity). texture = 0 turns it off.
     void setDetail(unsigned int texture, float scale = 1.0f, float strength = 1.0f);
+    // Texels of the mesh texture below this alpha are holes, also in the depth prepass. 0: off. Shadow maps ignore it.
+    void setAlphaCut(float cut) { alphaCut = cut; }
+    float alphaCut = 0.0f;
+    // Leaves and grass. sway: metres the tip moves in the wind (SetWind); the v texture coordinate says how far along the
+    // plant a vertex is, 0 at the root that stays still, from 1 at the tip. through: light crossing the leaf from behind
+    // (PBR materials), 1 is strong. Shadow maps ignore the sway: draw what must sway outside the shadow passes.
+    void setFoliage(float sway, float through) { foliageSway = sway, foliageThrough = through; }
+    float foliageSway = 0.0f, foliageThrough = 0.0f;
     
 public:
     struct Mesh {

@@ -503,8 +503,34 @@ void LarvaOnline::handle(const std::vector<std::string> &f)
         fr.game = f[4] == "-" ? "" : f[4];
         fr.lobby = toId(f[5]);
         fr.joinable = f[6] == "1";
+        if (f.size() >= 8)
+            fr.lastSeen = std::atoll(f[7].c_str());
+        if (f.size() >= 9)
+            fr.avatarVer = std::atoll(f[8].c_str());
         friendList[fr.id] = fr;
         names[fr.id] = fr.name;
+    }
+    else if (op == "PROFILE" && f.size() >= 7)
+    {
+        Profile p;
+        p.id = toId(f[1]);
+        p.name = f[2];
+        p.since = std::atoll(f[3].c_str());
+        p.avatarVer = std::atoll(f[4].c_str());
+        p.friendCount = std::atoi(f[5].c_str());
+        p.bio = f[6];
+        profiles[p.id] = p;
+    }
+    else if (op == "AVATAR" && f.size() >= 4)
+    {
+        Online::UserId id = toId(f[1]);
+        Avatar &a = avatars[id];
+        a.ver = std::atoll(f[2].c_str());
+        std::string png(f[3].size() / 2, ' ');
+        if (!f[3].empty() && larva::crypto::fromHex(f[3], &png[0], png.size()))
+            a.png = png;
+        else
+            a.png.clear();
     }
     else if (op == "FRIEND_GONE" && f.size() >= 2)
         friendList.erase(toId(f[1]));
@@ -1091,11 +1117,58 @@ void LarvaOnline::logout()
     resetLobby(true);
     clearLinks();
     friendList.clear();
+    profiles.clear();
+    avatars.clear();
     pendingInvites.clear();
     me = 0;
     myName_.clear();
     if (state_ != State::Offline && state_ != State::Connecting)
         state_ = State::NeedLogin;
+}
+
+const LarvaOnline::Profile *LarvaOnline::profile(Online::UserId id) const
+{
+    auto it = profiles.find(id);
+    return it == profiles.end() ? nullptr : &it->second;
+}
+
+void LarvaOnline::requestProfile(Online::UserId id)
+{
+    if (available() && id)
+        command({"PROFILE_GET", std::to_string(id)});
+}
+
+void LarvaOnline::setBio(const std::string &bio)
+{
+    if (available())
+        command({"PROFILE_BIO", OnlineProto::clean(bio)});
+}
+
+bool LarvaOnline::setAvatar(const std::string &png)
+{
+    if (!available() || png.size() < 33 || png.size() > 100 * 1024)
+        return false;
+    command({"AVATAR_SET", larva::crypto::toHex(png.data(), png.size())});
+    return true;
+}
+
+const std::string *LarvaOnline::avatar(Online::UserId id, int64_t wantedVer, int64_t &ver)
+{
+    auto it = avatars.find(id);
+    bool have = it != avatars.end();
+    ver = have ? it->second.ver : 0;
+    if (wantedVer > 0 && (!have || it->second.ver != wantedVer) && available())
+    {
+        Avatar &a = avatars[id];
+        double now = (double)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() / 1000.0;
+        if (now - a.askedAt > 5.0)
+        {
+            a.askedAt = now;
+            command({"AVATAR_GET", std::to_string(id)});
+        }
+        it = avatars.find(id);
+    }
+    return it != avatars.end() && !it->second.png.empty() ? &it->second.png : nullptr;
 }
 
 std::string LarvaOnline::userName(Online::UserId id)

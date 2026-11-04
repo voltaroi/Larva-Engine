@@ -26,10 +26,14 @@
 //   HELLO version jeu                           WELCOME version
 //   REGISTER pseudo secret                      AUTH id pseudo jeton        (connecté)
 //   LOGIN pseudo secret                         ERR contexte message
-//   RESUME pseudo jeton                         FRIEND id pseudo état jeu salon joignable   (ajout ou mise à jour)
+//   RESUME pseudo jeton                         FRIEND id pseudo état jeu salon joignable [dernière_connexion [version_photo]]   (ajout ou mise à jour)
 //   LOGOUT                                      FRIEND_GONE id
 //   FRIEND_ADD pseudo                           LOBBY_ENTERED salon propriétaire max [id pseudo]... (tous les membres)
 //   FRIEND_ACCEPT id / FRIEND_REMOVE id         LOBBY_FAILED message
+//   PROFILE_GET id (soi, ami, demande reçue)    PROFILE id pseudo depuis photo_version nb_amis texte
+//   AVATAR_GET id                               AVATAR id photo_version png_en_hexadécimal (vide : aucune photo)
+//   PROFILE_BIO texte (140 car. max)            PROFILE (le sien)
+//   AVATAR_SET png_en_hexadécimal               PROFILE (le sien), FRIEND aux amis (PNG 256x256 et 100 Ko maximum)
 //   LOBBY_CREATE max [releve]                   MEMBER id pseudo            (nouveau membre)
 //     (releve 1 : le salon survit au départ     MEMBER_LEFT id
 //      de son propriétaire)                     LOBBY_CLOSED                (le propriétaire est parti)

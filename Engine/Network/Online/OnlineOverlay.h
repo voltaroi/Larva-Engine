@@ -18,6 +18,8 @@
 namespace OnlineOverlay
 {
     bool isOpen();
+    // Nombre d'amis en ligne (0 : aucun, ou pas connecte) : pastille a afficher sur le bouton "Amis" du jeu
+    int onlineFriendCount();
     void open();
     void close();
     void toggle();

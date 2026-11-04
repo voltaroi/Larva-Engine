@@ -88,6 +88,24 @@ public:
     // Rejoindre la partie d'un ami (même jeu, salon joignable) : passe par onJoinRequested comme une invitation
     bool joinFriend(Online::UserId id);
 
+    // --- Profils : texte de présentation et photo (PNG) ---
+    struct Profile
+    {
+        Online::UserId id = 0;
+        std::string name, bio;
+        int64_t since = 0;     // création du compte (secondes Unix, 0 : inconnue)
+        int64_t avatarVer = 0; // 0 : pas de photo
+        int friendCount = 0;
+    };
+    // Profil reçu du serveur (nullptr tant qu'il n'est pas arrivé) ; requestProfile le demande (soi, ami, demande reçue)
+    const Profile *profile(Online::UserId id) const;
+    void requestProfile(Online::UserId id);
+    void setBio(const std::string &bio);
+    // Envoie une photo de profil : PNG de 256x256 maximum, 100 Ko maximum. false si refusée avant l'envoi
+    bool setAvatar(const std::string &png);
+    // Photo en cache (PNG) : renvoie nullptr tant qu'elle n'est pas arrivée ; ver = sa version. Demande la photo si besoin.
+    const std::string *avatar(Online::UserId id, int64_t wantedVer, int64_t &ver);
+
     // --- Serveurs de jeu dédiés ---
     // Ticket prouvant le compte à un serveur de jeu (voir OnlineProtocol.h) ; audience donnée par ce serveur.
     // Réponse dans onTicket (ticket vide et raison en cas d'échec). false : pas connecté à un compte.
@@ -132,6 +150,14 @@ private:
     std::string myName_;
     bool rememberLogin = true;
     std::map<Online::UserId, Online::Friend> friendList;
+    std::map<Online::UserId, Profile> profiles;
+    struct Avatar
+    {
+        int64_t ver = 0;
+        std::string png;
+        double askedAt = -100;
+    };
+    std::map<Online::UserId, Avatar> avatars;
     std::map<Online::UserId, std::string> names; // pseudos connus (amis, membres de salon)
     std::vector<Online::Invite> pendingInvites;
     bool overlayRequested = false;

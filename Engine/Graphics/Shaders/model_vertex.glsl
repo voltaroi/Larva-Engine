@@ -24,17 +24,33 @@ uniform vec3 uObjectScale; // Model scale: detail textures keep their size on sc
 // Depth priority (Model::DepthPriority): of two surfaces at the same place, the higher one stays in front. Same
 // computation as the depth prepass of Model (PREPASS_VS)
 uniform float uDepthPriority;
+uniform vec2 uVertexSnap; // > 0: vertices snap to this grid of the screen (Model::SetRetroGeometry). Same in PREPASS_VS
+// Foliage in the wind (Model::setFoliage, Model::SetWind). Same in PREPASS_VS
+uniform vec4 uWind;        // time, direction x, z, strength
+uniform float uFoliageSway;
 const float DEPTH_STEP = 2.0 / 16777215.0; // one step of a 24 bit depth buffer
 
 out vec3 FragPos;
 out vec3 Normal;
 out vec2 TexCoord;
+noperspective out vec2 TexCoordFlat; // no perspective correction (Model::SetRetroGeometry)
 out vec4 FragPosLightSpace;
 out vec3 LocalPos;    // object space, scaled (before rotation)
 out vec3 LocalNormal;
 uniform bool uInstanced;
 flat out vec4 InstColor;
 flat out vec3 InstMaterial;
+
+vec3 foliageBend(vec3 p, float along)
+{
+    float across = dot(p.xz, uWind.yz);
+    float gust = 0.55 + 0.45 * sin(across * 0.09 - uWind.x * 0.6);                   // a wide front crossing the place
+    float sway = sin(across * 0.5 - uWind.x * 1.7 + p.y * 0.3);                      // the branch
+    float flutter = sin(uWind.x * 5.3 + p.x * 2.1 + p.z * 1.7 + p.y * 1.3);          // the leaves
+    float reach = clamp(along, 0.0, 1.0);
+    vec3 down = vec3(uWind.y, 0.0, uWind.z), aside = vec3(-uWind.z, 0.0, uWind.y);
+    return (down * gust * (0.6 + 0.4 * sway) + (aside * 0.15 + vec3(0.0, 0.22, 0.0)) * flutter * (gust + 0.3)) * reach * reach * uFoliageSway * uWind.w;
+}
 
 void main()
 {
@@ -52,9 +68,12 @@ void main()
         InstMaterial = iMaterial.xyz;
     }
     vec4 worldPos = m * vec4(aPos, 1.0);
+    if (uFoliageSway > 0.0)
+        worldPos.xyz += foliageBend(worldPos.xyz, aTexCoord.y);
     FragPos = worldPos.xyz;
     Normal = nm * aNormal;
     TexCoord = aTexCoord;
+    TexCoordFlat = aTexCoord;
     vec3 sc = max(abs(scale), vec3(1e-4));
     LocalPos = aPos * scale;
     LocalNormal = aNormal / sc;
@@ -62,4 +81,6 @@ void main()
     gl_Position = projection * view * worldPos;
     float priority = uInstanced ? iMaterial.w : (aPriority > 0.0 ? aPriority - 1.0 : uDepthPriority);
     gl_Position.z -= priority * DEPTH_STEP * gl_Position.w;
+    if (uVertexSnap.x > 0.0 && gl_Position.w > 0.0)
+        gl_Position.xy = floor(gl_Position.xy / gl_Position.w * uVertexSnap + 0.5) / uVertexSnap * gl_Position.w;
 }

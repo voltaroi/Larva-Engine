@@ -54,6 +54,8 @@ namespace Online
         std::string game;  // jeu en cours ("launcher" : seulement le launcher ouvert)
         LobbyId lobby = 0; // partie en cours (0 : aucune)
         bool joinable = false;
+        int64_t avatarVer = 0; // version de la photo de profil (0 : aucune)
+        int64_t lastSeen = 0; // dernière connexion (secondes Unix) d'un ami hors ligne ; 0 : inconnue
     };
 
     struct Invite

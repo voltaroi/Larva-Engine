@@ -2,9 +2,13 @@
 #include <GL/glew.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <ctime>
 #include <map>
 #include <vector>
+#include "Engine/Graphics/Draw2D.h"
 #include "Engine/Graphics/TextBox.h"
+#include "Engine/Graphics/stb_image.h"
 #include "Engine/Graphics/UI.h"
 #include "Engine/Graphics/UIWidgets.h"
 #include "LarvaOnline.h"
@@ -26,6 +30,17 @@ namespace OnlineOverlay
         double inviteTime = -100.0;
         std::string notice; // message local (mots de passe différents...)
         Style style;
+        struct AvatarTex
+        {
+            int64_t ver = 0;
+            GLuint id = 0;
+        };
+        std::map<Online::UserId, AvatarTex> avatarTex;
+        Online::UserId profileId = 0; // profil ouvert (0 : liste d'amis)
+        TextBox *tbBio = nullptr;
+        bool bioLoaded = false;
+        std::string bioSent, bioPrev;
+        double bioEditAt = 0, profileAsked = -100;
 
         double now()
         {
@@ -74,6 +89,7 @@ namespace OnlineOverlay
             tbPass2 = make(64);
             tbPass2->password = true;
             tbFriend = make(16);
+            tbBio = make(140);
         }
 
         std::vector<TextBox *> activeBoxes(LarvaOnline &svc)
@@ -86,13 +102,17 @@ namespace OnlineOverlay
                 return {tbName, tbPass};
             }
             if (svc.state() == S::Ready)
+            {
+                if (profileId)
+                    return profileId == svc.myId() ? std::vector<TextBox *>{tbBio} : std::vector<TextBox *>{};
                 return {tbFriend};
+            }
             return {};
         }
 
         void unfocusAll()
         {
-            for (TextBox *t : {tbName, tbPass, tbPass2, tbFriend})
+            for (TextBox *t : {tbName, tbPass, tbPass2, tbFriend, tbBio})
                 if (t)
                     t->setFocus(false);
         }
@@ -120,6 +140,15 @@ namespace OnlineOverlay
                     svc.login(tbName->text, tbPass->text);
                 tbPass->text.clear();
                 tbPass2->text.clear();
+            }
+            else if (svc.state() == S::Ready && profileId)
+            {
+                if (profileId == svc.myId() && bioLoaded && tbBio->text != bioSent)
+                {
+                    bioSent = tbBio->text;
+                    svc.setBio(tbBio->text);
+                }
+                tbBio->setFocus(false);
             }
             else if (svc.state() == S::Ready && !tbFriend->text.empty())
             {
@@ -176,6 +205,343 @@ namespace OnlineOverlay
             text("Un seul compte pour tous les jeux et le launcher", x, y, ts() * 0.55f, style.dim);
         }
 
+        // ---------------------------------------------------------------- photos et profils
+
+        GLuint avatarTexture(LarvaOnline &svc, Online::UserId id, int64_t ver)
+        {
+            if (ver <= 0)
+                return 0;
+            int64_t have = 0;
+            const std::string *png = svc.avatar(id, ver, have);
+            AvatarTex &t = avatarTex[id];
+            if (png && have == ver && t.ver != ver)
+            {
+                int w = 0, h = 0, comp = 0;
+                unsigned char *px = stbi_load_from_memory((const unsigned char *)png->data(), (int)png->size(), &w, &h, &comp, 4);
+                if (px)
+                {
+                    if (t.id)
+                        glDeleteTextures(1, &t.id);
+                    glGenTextures(1, &t.id);
+                    glBindTexture(GL_TEXTURE_2D, t.id);
+                    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, px);
+                    stbi_image_free(px);
+                }
+                t.ver = ver;
+            }
+            return t.id;
+        }
+
+        // Photo ronde, ou silhouette (tete + epaules) quand le joueur n'en a pas
+        void drawAvatar(LarvaOnline &svc, Online::UserId id, int64_t ver, float cx, float cy, float r, bool online)
+        {
+            GLuint tex = avatarTexture(svc, id, ver);
+            glEnable(GL_BLEND);
+            if (tex)
+            {
+                glEnable(GL_TEXTURE_2D);
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glColor4f(online ? 1.0f : 0.7f, online ? 1.0f : 0.7f, online ? 1.0f : 0.7f, 1.0f);
+                glBegin(GL_TRIANGLE_FAN);
+                glTexCoord2f(0.5f, 0.5f);
+                glVertex2f(cx, cy);
+                for (int i = 0; i <= 40; ++i)
+                {
+                    float a = (float)i * 6.2831853f / 40.0f;
+                    glTexCoord2f(0.5f + std::cos(a) * 0.5f, 0.5f - std::sin(a) * 0.5f);
+                    glVertex2f(cx + std::cos(a) * r, cy + std::sin(a) * r);
+                }
+                glEnd();
+                glDisable(GL_TEXTURE_2D);
+            }
+            else
+            {
+                Draw2D::setColor(0.13f, 0.145f, 0.2f, 1.0f);
+                Draw2D::circle(cx, cy, r, true, 36);
+                Draw2D::setColor(1, 1, 1, online ? 0.95f : 0.5f);
+                Draw2D::circle(cx, cy + r * 0.24f, r * 0.30f, true, 20);
+                std::vector<float> pts;
+                for (int i = 0; i <= 14; ++i)
+                {
+                    float t = 3.14159265f * (float)i / 14.0f;
+                    pts.push_back(cx + std::cos(t) * r * 0.56f);
+                    pts.push_back(cy - r * 0.60f + std::sin(t) * r * 0.5f);
+                }
+                Draw2D::polygon(pts);
+            }
+            UI::setColor(1, 1, 1, 1);
+        }
+
+        std::string lastSeenText(long long when)
+        {
+            if (when <= 0)
+                return "";
+            long long d = (long long)std::time(nullptr) - when;
+            if (d < 0)
+                d = 0;
+            std::string s;
+            if (d < 60)
+                s = "a l'instant";
+            else if (d < 3600)
+                s = "il y a " + std::to_string(d / 60) + " min";
+            else if (d < 86400)
+                s = "il y a " + std::to_string(d / 3600) + " h";
+            else if (d < 86400 * 60)
+                s = "il y a " + std::to_string(d / 86400) + (d < 86400 * 2 ? " jour" : " jours");
+            else
+                s = "il y a longtemps";
+            return " - " + s;
+        }
+
+        std::string memberSince(long long when)
+        {
+            if (when <= 0)
+                return "Inconnu";
+            static const char *months[] = {"janv.", "fevr.", "mars", "avril", "mai", "juin", "juil.", "aout", "sept.", "oct.", "nov.", "dec."};
+            std::time_t t = (std::time_t)when;
+            std::tm tmv = {};
+            localtime_s(&tmv, &t);
+            return std::to_string(tmv.tm_mday) + " " + months[tmv.tm_mon % 12] + " " + std::to_string(tmv.tm_year + 1900);
+        }
+
+        // La police ne dessine que l'ASCII : les autres caracteres deviennent '?'
+        std::string asciiOnly(const std::string &s)
+        {
+            std::string out;
+            for (size_t i = 0; i < s.size(); ++i)
+            {
+                unsigned char c = (unsigned char)s[i];
+                if (c < 0x80)
+                    out.push_back((char)c);
+                else if (c >= 0xC0)
+                    out.push_back('?');
+            }
+            return out;
+        }
+
+        std::vector<std::string> wrap(const std::string &s, float scale, float maxW)
+        {
+            std::vector<std::string> lines;
+            std::string cur, word;
+            auto flush = [&]() {
+                if (word.empty())
+                    return;
+                std::string next = cur.empty() ? word : cur + " " + word;
+                if (!cur.empty() && UI::getTextWidth(next, scale) > maxW)
+                {
+                    lines.push_back(cur);
+                    cur = word;
+                }
+                else
+                    cur = next;
+                word.clear();
+            };
+            for (char c : s)
+            {
+                if (c == ' ')
+                    flush();
+                else
+                    word.push_back(c);
+            }
+            flush();
+            if (!cur.empty())
+                lines.push_back(cur);
+            return lines;
+        }
+
+        void centered(const std::string &s, float cx, float y, float scale, const float c[3])
+        {
+            text(s, cx - UI::getTextWidth(s, scale) / 2, y, scale, c);
+        }
+
+        void openProfile(LarvaOnline &svc, Online::UserId id)
+        {
+            profileId = id;
+            bioLoaded = false;
+            profileAsked = -100;
+            confirmRemove = 0;
+            if (tbBio)
+                tbBio->setFocus(false);
+            svc.clearError();
+        }
+
+        void closeProfile(LarvaOnline &svc)
+        {
+            if (bioLoaded && profileId == svc.myId() && tbBio && tbBio->text != bioSent)
+            {
+                bioSent = tbBio->text;
+                svc.setBio(tbBio->text);
+            }
+            profileId = 0;
+            confirmRemove = 0;
+            if (tbBio)
+                tbBio->setFocus(false);
+        }
+
+        void drawProfile(LarvaOnline &svc, float x, float y, float w, float bottom)
+        {
+            const bool self = profileId == svc.myId();
+            const LarvaOnline::Profile *p = svc.profile(profileId);
+            const double t = now();
+            if (t - profileAsked > (p ? 20.0 : 2.0))
+            {
+                profileAsked = t;
+                svc.requestProfile(profileId);
+            }
+            Online::Friend fr;
+            bool isFriend = false;
+            for (const Online::Friend &f : svc.friends())
+                if (f.id == profileId)
+                {
+                    fr = f;
+                    isFriend = true;
+                }
+            if (p && self && !bioLoaded && !tbBio->focused)
+            {
+                tbBio->text = p->bio;
+                bioSent = bioPrev = p->bio;
+                bioLoaded = true;
+            }
+
+            if (UIWidgets::button("RETOUR", x, y - 4, 150, 42))
+            {
+                closeProfile(svc);
+                return;
+            }
+            // Retirer un ami : logo (personne barree), puis confirmation
+            if (!self && isFriend)
+            {
+                if (UIWidgets::button("", x + w - 52, y - 4, 52, 42))
+                    confirmRemove = confirmRemove == fr.id ? 0 : fr.id;
+                const float bx = x + w - 52, by = y - 4;
+                Draw2D::setColor(1, 1, 1, 0.9f);
+                Draw2D::setLineWidth(2.2f);
+                Draw2D::circle(bx + 20, by + 28, 6, false, 16);
+                Draw2D::arc(bx + 20, by + 11, 11, 0.35f, 2.8f, 14);
+                Draw2D::setColor(style.bad[0], style.bad[1], style.bad[2], 1.0f);
+                Draw2D::line(bx + 31, by + 24, bx + 43, by + 24);
+                UI::setColor(1, 1, 1, 1);
+            }
+
+            const float cx = x + w / 2, r = 58, cy = y - 4 - 42 - 16 - r;
+            int64_t ver = p ? p->avatarVer : (isFriend ? fr.avatarVer : 0);
+            drawAvatar(svc, profileId, ver, cx, cy, r, self || (isFriend && fr.state == Online::Friend::Online));
+            std::string name = p ? p->name : (self ? svc.myName() : (isFriend ? fr.name : std::string("...")));
+            centered(fit(name, w, ts() * 1.0f), cx, cy - r - 38, ts() * 1.0f, style.text);
+            std::string status;
+            const float *sc = style.dim;
+            if (self)
+            {
+                status = "En ligne";
+                sc = style.good;
+            }
+            else if (isFriend && fr.state == Online::Friend::Online)
+            {
+                status = fr.game == "launcher" || fr.game.empty() ? "En ligne" : "En jeu : " + gameName(fr.game);
+                sc = style.good;
+            }
+            else if (isFriend)
+                status = "Hors ligne" + lastSeenText(fr.lastSeen);
+            else
+                status = "Demande d'ami";
+            centered(fit(status, w, ts() * 0.6f), cx, cy - r - 70, ts() * 0.6f, sc);
+
+            float yy = cy - r - 112;
+            text("A PROPOS", x, yy, ts() * 0.6f, style.label);
+            yy -= 14;
+            if (self)
+            {
+                yy -= 44;
+                tbBio->x = x;
+                tbBio->y = yy;
+                tbBio->width = w;
+                tbBio->height = 44;
+                tbBio->draw();
+                if (tbBio->text.empty() && !tbBio->focused)
+                    text("Ajoute une description", x + 12, yy + 14, ts() * 0.6f, style.dim);
+                // Enregistrement automatique : 0,8 s apres la derniere frappe
+                if (tbBio->text != bioPrev)
+                {
+                    bioPrev = tbBio->text;
+                    bioEditAt = t;
+                }
+                if (p && bioLoaded && tbBio->text != bioSent && tbBio->text != p->bio && t - bioEditAt > 0.8)
+                {
+                    bioSent = tbBio->text;
+                    svc.setBio(tbBio->text);
+                }
+                yy -= 8;
+                text("La photo se change depuis le launcher", x, yy - 14, ts() * 0.5f, style.dim);
+                yy -= 26;
+            }
+            else
+            {
+                std::string bio = p ? asciiOnly(p->bio) : std::string();
+                if (bio.empty())
+                {
+                    text(p ? "Aucune description" : "Chargement...", x, yy - 22, ts() * 0.6f, style.dim);
+                    yy -= 30;
+                }
+                else
+                {
+                    int n = 0;
+                    for (const std::string &line : wrap(bio, ts() * 0.64f, w))
+                    {
+                        if (++n > 4)
+                            break;
+                        yy -= 28;
+                        text(line, x, yy, ts() * 0.64f, style.text);
+                    }
+                }
+            }
+
+            // Statistiques
+            yy -= 16;
+            const bool confirming = confirmRemove == profileId && !self && isFriend;
+            const float cw = (w - 12) / 2, chh = 70;
+            for (int i = 0; i < 2 && !confirming; ++i)
+            {
+                float sx = x + (float)i * (cw + 12);
+                if (style.card)
+                    style.card(sx, yy - chh, cw, chh, false);
+                else
+                    UI::drawBox(sx, yy - chh, cw, chh, 0.1f, 0.11f, 0.13f, 0.85f);
+                text(i == 0 ? "Membre depuis" : "Amis", sx + 14, yy - 24, ts() * 0.5f, style.label);
+                std::string v = i == 0 ? (p ? memberSince(p->since) : "...") : (p ? std::to_string(p->friendCount) : "...");
+                text(fit(v, cw - 28, ts() * 0.72f), sx + 14, yy - 54, ts() * 0.72f, style.text);
+            }
+            if (!confirming)
+                yy -= chh + 14;
+
+            if (confirming)
+            {
+                const float ch = 100;
+                if (style.card)
+                    style.card(x, yy - ch, w, ch, true);
+                else
+                    UI::drawBox(x, yy - ch, w, ch, 0.25f, 0.1f, 0.1f, 0.9f);
+                text(fit("Retirer " + fr.name + " de tes amis ?", w - 28, ts() * 0.66f), x + 14, yy - 34, ts() * 0.66f, style.bad);
+                const float hw = (w - 28 - 10) / 2;
+                if (UIWidgets::button("ANNULER", x + 14, yy - ch + 10, hw, 40))
+                    confirmRemove = 0;
+                if (UIWidgets::button("RETIRER", x + 14 + hw + 10, yy - ch + 10, hw, 40))
+                {
+                    svc.removeFriend(fr.id);
+                    confirmRemove = 0;
+                    closeProfile(svc);
+                }
+                yy -= ch + 10;
+            }
+            else if (!svc.lastError().empty())
+                text(fit(svc.lastError(), w, ts() * 0.55f), x, yy - 10, ts() * 0.55f, style.bad);
+            (void)bottom;
+        }
+
         // Une ligne de la liste d'amis ; renvoie false si elle n'a pas pu être dessinée
         void drawFriend(LarvaOnline &svc, const Online::Friend &f, float x, float y, float w, float h)
         {
@@ -204,7 +570,7 @@ namespace OnlineOverlay
                 sc = style.good;
                 break;
             default:
-                status = "Hors ligne";
+                status = "Hors ligne" + lastSeenText(f.lastSeen);
             }
             const float bw = 120, bh = 38, by = y + (h - bh) / 2;
             float right = x + w - 8;
@@ -214,19 +580,7 @@ namespace OnlineOverlay
                 right -= 8;
                 return clicked;
             };
-            if (confirmRemove == f.id)
-            {
-                if (btn("NON"))
-                    confirmRemove = 0;
-                if (btn("OUI"))
-                {
-                    svc.removeFriend(f.id);
-                    confirmRemove = 0;
-                }
-                status = "Retirer de tes amis ?";
-                sc = style.bad;
-            }
-            else if (f.state == Online::Friend::RequestIn)
+            if (f.state == Online::Friend::RequestIn)
             {
                 if (btn("REFUSER"))
                     svc.removeFriend(f.id);
@@ -240,10 +594,6 @@ namespace OnlineOverlay
             }
             else
             {
-                right -= 34;
-                if (UIWidgets::button("x", right, by, 34, bh))
-                    confirmRemove = f.id;
-                right -= 8;
                 bool sameGame = online && f.game == svc.game();
                 bool inMyLobby = svc.currentLobby() && svc.lobbyHasMember(f.id);
                 if (svc.currentLobby() && online && !inMyLobby)
@@ -262,19 +612,30 @@ namespace OnlineOverlay
                 if (inMyLobby)
                     status = svc.directConnection(f.id) ? "Dans ta partie - connexion directe" : "Dans ta partie - par le relais";
             }
-            float textW = right - (x + 20);
-            text(fit(f.name, textW, ts() * 0.72f), x + 20, y + h - 30, ts() * 0.72f, style.text);
-            text(fit(status, textW, ts() * 0.55f), x + 20, y + 12, ts() * 0.55f, sc);
+            // Clic sur la ligne (hors boutons) : ouvre le profil
+            if (f.state != Online::Friend::RequestOut)
+            {
+                if (UIWidgets::hovered(x, y, right - x, h))
+                    UI::drawBox(x, y, right - x, h, 1, 1, 1, 0.05f);
+                if (UIWidgets::clicked(x, y, right - x, h))
+                    openProfile(svc, f.id);
+            }
+            drawAvatar(svc, f.id, f.avatarVer, x + 38, y + h / 2, 24, online);
+            float textW = right - (x + 76);
+            text(fit(f.name, textW, ts() * 0.72f), x + 72, y + h - 30, ts() * 0.72f, style.text);
+            text(fit(status, textW, ts() * 0.55f), x + 72, y + 12, ts() * 0.55f, sc);
         }
 
         void drawReady(LarvaOnline &svc, float x, float y, float w, float bottom)
         {
-            text(fit("Connecte : " + svc.myName(), w - 190, ts() * 0.7f), x, y + 12, ts() * 0.7f, style.text);
-            if (UIWidgets::button("DECONNEXION", x + w - 180, y, 180, 42))
+            if (profileId)
             {
-                svc.logout();
+                drawProfile(svc, x, y, w, bottom);
                 return;
             }
+            text(fit("Connecte : " + svc.myName(), w - 210, ts() * 0.7f), x, y + 12, ts() * 0.7f, style.text);
+            if (UIWidgets::button("MON PROFIL", x + w - 176, y, 176, 42))
+                openProfile(svc, svc.myId());
             y -= 40;
             if (svc.currentLobby())
                 text("Partie en cours : " + std::to_string(svc.lobbyMemberCount()) + " joueur(s) - invite tes amis", x, y,
@@ -390,6 +751,17 @@ namespace OnlineOverlay
 
     bool isOpen() { return opened && Online::larva(); }
 
+    int onlineFriendCount()
+    {
+        LarvaOnline *s = Online::larva();
+        if (!s || s->state() != LarvaOnline::State::Ready)
+            return 0;
+        int n = 0;
+        for (const Online::Friend &f : s->friends())
+            n += f.state == Online::Friend::Online;
+        return n;
+    }
+
     void open()
     {
         if (!Online::larva())
@@ -401,6 +773,9 @@ namespace OnlineOverlay
 
     void close()
     {
+        if (LarvaOnline *s = Online::larva())
+            if (profileId)
+                closeProfile(*s);
         opened = false;
         confirmRemove = 0;
         unfocusAll();
@@ -440,7 +815,7 @@ namespace OnlineOverlay
         bool down = UIWidgets::mouseDown();
         std::vector<TextBox *> boxes = activeBoxes(*svc);
         if (down && !wasDown)
-            for (TextBox *t : {tbName, tbPass, tbPass2, tbFriend})
+            for (TextBox *t : {tbName, tbPass, tbPass2, tbFriend, tbBio})
             {
                 bool active = std::find(boxes.begin(), boxes.end(), t) != boxes.end();
                 if (active)
@@ -511,7 +886,15 @@ namespace OnlineOverlay
         initBoxes();
         if (key == 27)
         {
-            close();
+            if (profileId && svc->state() == LarvaOnline::State::Ready)
+            {
+                if (tbBio->focused)
+                    tbBio->setFocus(false);
+                else
+                    closeProfile(*svc);
+            }
+            else
+                close();
             return true;
         }
         std::vector<TextBox *> boxes = activeBoxes(*svc);
